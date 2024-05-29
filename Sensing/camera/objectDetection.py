@@ -79,11 +79,16 @@ while (True):
         #find the (second if counting the background) largest connected component
         connect = cv2.connectedComponentsWithStats(m_open, 4, cv2.CV_32S)
         stats = connect[2]
+        centroids = connect[3]
 
         if (len(stats) > 1):
-            stat = stats[np.argsort(-stats[:, -1])[1]]
-            cv2.rectangle(image, (stat[0], stat[1]), (stat[0] + stat[2], stat[1] + stat[3]), (0, 255, 0), 5)
-            cv2.putText(image, "following", (stat[0], stat[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=5)
+            sorted_i = np.argsort(-stats[:, -1])
+            stat = stats[sorted_i[1]]
+            (cx, cy) = centroids[sorted_i[1]]
+            cv2.rectangle(image, (stat[0], stat[1]), (stat[0] + stat[2], stat[1] + stat[3]), (0, 255, 0), 3)
+            cv2.circle(image, (int(cx), int(cy)), 1, (0,255, 0), 3)
+            cv2.putText(image, "following", (stat[0], stat[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
+            cv2.putText(image, "center", (int(cx), int(cy)), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
 
 
         #show all images for debug
