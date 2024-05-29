@@ -3,6 +3,8 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <step.h>
+#include <mpu6050.h>
+#include <PIDController.h>
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -20,6 +22,13 @@ const int  STEPPER_INTERVAL_US = 20;
 
 const float kx = 20.0;
 
+//tune the parameters here
+
+double kp = 50;
+double ki = 2;
+double kd = 20;
+double setpoint = 100;
+
 //Global objects
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;         //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
@@ -27,7 +36,14 @@ Adafruit_MPU6050 mpu;         //Default pins for I2C are SCL: IO22/Arduino D3, S
 step step1(STEPPER_INTERVAL_US,STEPPER1_STEP_PIN,STEPPER1_DIR_PIN );
 step step2(STEPPER_INTERVAL_US,STEPPER2_STEP_PIN,STEPPER2_DIR_PIN );
 
+MPU6050Handler mpuHandler;
+MPU6050_DATA mpu6050_data;
 
+PID pid(kp, ki, kd, setpoint);
+
+
+//change these values to tune the PID controller
+double pidOutput;
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool TimerHandler(void * timerNo)
@@ -48,6 +64,8 @@ void setup()
 {
   Serial.begin(115200);
   pinMode(TOGGLE_PIN,OUTPUT);
+  mpuHandler.init();
+
 
   // Try to initialize Accelerometer/Gyroscope
   if (!mpu.begin()) {
@@ -97,10 +115,12 @@ void loop()
     //Calculate Tilt using accelerometer and sin x = x approximation for a small tilt angle
     tiltx = a.acceleration.z/9.67;
 
+    pidOutput = pid.compute(tiltx);
+
     //Set target motor speed proportional to tilt angle
     //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
-    step1.setTargetSpeedRad(tiltx*kx);
-    step2.setTargetSpeedRad(-tiltx*kx);
+    step1.setTargetSpeedRad(pidOutput*kx);
+    step2.setTargetSpeedRad(-pidOutput*kx);
   }
   
   //Print updates every PRINT_INTERVAL ms
@@ -110,5 +130,28 @@ void loop()
     Serial.print(' ');
     Serial.print(step1.getSpeedRad());
     Serial.println();
+
   }
+
+    mpuHandler.readData(mpu6050_data);
+
+    Serial.print("Acceleration X: ");
+    Serial.print(mpu6050_data.Acc_X);
+    Serial.print(", Y: ");
+    Serial.print(mpu6050_data.Acc_Y);
+    Serial.print(", Z: ");
+    Serial.println(mpu6050_data.Acc_Z);
+
+    Serial.print("Gyro X: ");
+    Serial.print(mpu6050_data.Angle_Velocity_R);
+    Serial.print(", Y: ");
+    Serial.print(mpu6050_data.Angle_Velocity_P);
+    Serial.print(", Z: ");
+    Serial.println(mpu6050_data.Angle_Velocity_Y);
+
+    Serial.print("PIDOUTPUT: ");
+    Serial.println(pidOutput);
+
+
+    delay(100);
 }
