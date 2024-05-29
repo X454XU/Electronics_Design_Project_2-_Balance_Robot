@@ -5,6 +5,17 @@ import time
 def nothing(x):
     pass
 
+def turnLeft():
+    print("left")
+
+def goStraight():
+    print("straight")
+
+def turnRight():
+    print("right")
+
+
+
 
 #2 for droidcam, 0 for innate webcam
 cam = cv2.VideoCapture(2)
@@ -89,6 +100,21 @@ while (True):
             cv2.circle(image, (int(cx), int(cy)), 1, (0,255, 0), 3)
             cv2.putText(image, "following", (stat[0], stat[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
             cv2.putText(image, "center", (int(cx), int(cy)), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
+
+            #process where to go
+            h, w, channels = image.shape
+
+            cv2.line(image, (w//3, 0), (w//3, h), (0, 0, 255), 1)
+            cv2.line(image, (2 * w // 3, 0), (2 * w // 3, h), (0, 0, 255), 1)
+            if (int(cx) < w//3):
+                turnLeft()
+            elif (int(cx) < w//3 * 2):
+                goStraight()
+            else:
+                turnRight()
+
+
+
 
 
         #show all images for debug
