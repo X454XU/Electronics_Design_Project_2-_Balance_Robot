@@ -127,14 +127,14 @@ void loop()
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
     Serial.print(tiltx*1000);
-    Serial.print(tiltx*180/PI)
+    Serial.print(tiltx*180/PI);
     //print tilt angle in degrees
     Serial.print(' ');
     Serial.print(step1.getSpeedRad());
     Serial.println();
     Serial.print(step2.getSpeedRad());
     //print step2 speed
-    Serial.println(setpoint)；
+    Serial.println(setpoint);
     //print setpoint
 
   }
