@@ -73,7 +73,7 @@ body, html {
     flex-grow: 1;
 }
 
-.velocity-wheel, .speed-display {
+.velocity-wheel, .speed-display, .distance-display {
     text-align: center;
     padding: 5px;
     background-color: #666; /* Distinct grey for interactive elements */
