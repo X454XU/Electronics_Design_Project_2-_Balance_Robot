@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance Robot UI</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+
+            <div class = "Block">
+                <div class="camera-section">
+                    <div class="camera-output">Camera Output</div>
+                    <div class="battery-life">Battery Life</div>
+                </div>
+            </div>
+            <div class="Block">
+                Movement
+                <div class="movement">
+                    <div class="velocity-wheel">
+                        <h5>Velocity Direction Wheel</h5>
+                    </div>
+
+                    <div class="function-ribbon">
+                        <button>Function 1</button>
+                        <button>Function 2</button>
+                        <button>Function 3</button>
+                    </div>
+
+                    <div class="speed-display">
+                        <p>
+                            Speed: <span id="speed">0</span>
+                        </p>
+                        <script src="js/speed.js"></script>
+                    </div>
+                </div>
+            </div>
+
+            <div class="Block">
+                Control Parameters
+                <div class="control">
+                    <div class="control-parameters">
+                        <p>P:</p>
+                        <p>I:</p>
+                        <p>D:</p>
+                    </div>
+    
+                    <div class="control-parameters">
+                        <p><input type="number" id="number-input" placeholder="set P"></p>
+                        <p><input type="number" id="number-input" placeholder="set I"></p>
+                        <p><input type="number" id="number-input" placeholder="set D"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wasd-container">
+                <div id="key-w" class="key">W</div>
+                <div class="key-row">
+                    <div id="key-a" class="key">A</div>
+                    <div id="key-s" class="key">S</div>
+                    <div id="key-d" class="key">D</div>
+                </div>
+                <script src="js/wasd.js"></script>
+            </div>
+            
+            
+
+        </div>
+        <div class="main">
+            <div class="map-output">2D Map of Mapped Area</div>
+            <div class="switch-container">
+                <label class="switch">
+                    <input type="checkbox" id="toggle-switch">
+                    <span class="slider"></span>
+                </label>
+                <script src="js/switch.js"></script>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
