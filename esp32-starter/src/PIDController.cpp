@@ -58,6 +58,7 @@ double PID::compute(double input) {
 
         // Calculate output
         double output = (kp * error) + integral - (kd * derivative);
+        // should it be plus between the second and the third term?
         output = std::max(outputMin, std::min(output, outputMax)); // Clamp output to output limits
 
         // Remember current input and time for next calculation
