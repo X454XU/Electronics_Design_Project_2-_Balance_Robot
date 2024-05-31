@@ -13,7 +13,7 @@ PID::PID(double kp, double ki, double kd, double setpoint) {
     this->outputMax = 100.0;
     this->prevInput = 0.0;
     this->integral = 0.0;
-    this->sampleTime = 0.1; // Default sample time in seconds
+    this->sampleTime = 0.01; // Default sample time in seconds
     this->lastTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     this->lastOutput = 0.0;
 }

@@ -21,10 +21,10 @@ const int LOOP_INTERVAL = 10;
 const int  STEPPER_INTERVAL_US = 20;
 
 //PID tuning parameters
-double kp = 60;
+double kp = 1500;
 double ki = 0;
 double kd = 0;
-double setpoint = 0.86; // Adjust
+double setpoint = 0.08; // Adjust
 
 double pidOutput;
 
@@ -41,8 +41,9 @@ MPU6050_DATA mpu6050_data;
 PID pid(kp, ki, kd, setpoint);
 
 // Complementary filter constant
-const double alpha = 0.98;
+const double alpha = 0.99; 
 double filteredAngle = 0.0;
+double previousFilteredAngle = 0.0;
 
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
@@ -112,19 +113,34 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    accelAngle = atan2(a.acceleration.y, a.acceleration.z);
+    // Calculate Tilt using accelerometer (simplified for small angles)
+    accelAngle = a.acceleration.z/9.67;
 
-    gyroRate = g.gyro.x;
+    // Get the rate of change from the gyroscope
+    gyroRate = g.gyro.y; //* (PI / 180.0); 
 
+    // Apply complementary filter
     double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
-    filteredAngle = alpha * (filteredAngle + gyroRate * dt) + (1 - alpha) * accelAngle;
+    filteredAngle = (1 - alpha) * accelAngle + alpha * (previousFilteredAngle + gyroRate * dt);
+    previousFilteredAngle = filteredAngle;
 
     pidOutput = pid.compute(filteredAngle);
 
     //Set target motor speed proportional to tilt angle
     //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
-    step1.setTargetSpeedRad(-pidOutput);
-    step2.setTargetSpeedRad(pidOutput);
+    step1.setAccelerationRad(-pidOutput);
+    step2.setAccelerationRad(pidOutput);
+
+
+    if (pidOutput > 0){
+      step1.setTargetSpeedRad(-10);
+      step2.setTargetSpeedRad(10);
+    }
+    else{
+      step1.setTargetSpeedRad(10);
+      step2.setTargetSpeedRad(-10);
+    }
+
   }
   
   //Print updates every PRINT_INTERVAL ms
@@ -161,7 +177,7 @@ void loop()
 
     Serial.print("PID Output: ");
     Serial.println(pidOutput);
-
+  
 
     delay(100);
 }
