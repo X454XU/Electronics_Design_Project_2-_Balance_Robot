@@ -6,6 +6,7 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 
+
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
 #define STEPPER1_STEP_PIN 17  //Arduino D8
@@ -143,21 +144,21 @@ void loop()
 
   }
   
-  //Print updates every PRINT_INTERVAL ms
-  // if (millis() > printTimer) {
-  //   printTimer += PRINT_INTERVAL;
-  //   Serial.print("Tilt (mrad): ");
-  //   Serial.print(filteredAngle*1000);
-  //   Serial.print(", Tilt (deg): ");
-  //   Serial.print(filteredAngle*180/PI);
-  //   Serial.print(", Step1 Speed: ");
-  //   Serial.print(step1.getSpeedRad());
-  //   Serial.print(", Step2 Speed: ");
-  //   Serial.print(step2.getSpeedRad());
-  //   Serial.print(", Setpoint: ");
-  //   Serial.println(setpoint);
+  // Print updates every PRINT_INTERVAL ms
+  if (millis() > printTimer) {
+    printTimer += PRINT_INTERVAL;
+    Serial.print("Tilt (mrad): ");
+    Serial.print(filteredAngle*1000);
+    Serial.print(", Tilt (deg): ");
+    Serial.print(filteredAngle*180/PI);
+    Serial.print(", Step1 Speed: ");
+    Serial.print(step1.getSpeedRad());
+    Serial.print(", Step2 Speed: ");
+    Serial.print(step2.getSpeedRad());
+    Serial.print(", Setpoint: ");
+    Serial.println(setpoint);
 
-  // }
+   }
 
     // mpuHandler.readData(mpu6050_data);
 
