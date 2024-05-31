@@ -9,8 +9,8 @@ PID::PID(double kp, double ki, double kd, double setpoint) {
     this->ki = ki;
     this->kd = kd;
     this->setpoint = setpoint;
-    this->outputMin = 0.0;
-    this->outputMax = 100.0;
+    this->outputMin = -80.0;
+    this->outputMax = 80.0;
     this->prevInput = 0.0;
     this->integral = 0.0;
     this->sampleTime = 0.01; // Default sample time in seconds
@@ -32,7 +32,9 @@ void PID::setSetpoint(double setpoint) {
 
 // Set the time interval between calculations
 void PID::setSampleTime(double sampleTime) {
-    this->sampleTime = sampleTime;
+    if (sampleTime > 0) {
+        this->sampleTime = sampleTime;
+    }
 }
 
 // Set output limits
@@ -54,7 +56,7 @@ double PID::compute(double input) {
         
         // Integral term calculation
         integral += (ki * error * timeChange);
-        //integral = std::max(outputMin, std::min(integral, outputMax)); // Clamp integral to output limits
+        integral = std::max(outputMin, std::min(integral, outputMax)); // Clamp integral to output limits
 
         // Derivative term calculation
         double derivative = (input - prevInput) / timeChange;
@@ -62,8 +64,8 @@ double PID::compute(double input) {
         // Calculate output
         double output = (kp * error) + integral + (kd * derivative);
         // should it be plus between the second and the third term?
-        //output = std::max(outputMin, std::min(output, outputMax)); // Clamp output to output limits
-        
+        output = std::max(outputMin, std::min(output, outputMax)); // Clamp output to output limits
+
 
         // Remember current input and time for next calculation
         prevInput = input;

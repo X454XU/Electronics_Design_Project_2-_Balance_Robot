@@ -21,10 +21,10 @@ const int LOOP_INTERVAL = 10;
 const int  STEPPER_INTERVAL_US = 20;
 
 //PID tuning parameters
-double kp = 1500;
+double kp = 1000;
 double ki = 0;
 double kd = 0;
-double setpoint = 0.08; // Adjust
+double setpoint = 0.0629; // Adjust
 
 double pidOutput;
 
@@ -41,7 +41,7 @@ MPU6050_DATA mpu6050_data;
 PID pid(kp, ki, kd, setpoint);
 
 // Complementary filter constant
-const double alpha = 0.99; 
+const double alpha = 0.98; 
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
@@ -88,8 +88,8 @@ void setup()
   Serial.println("Initialised Interrupt for Stepper");
 
   //Set motor acceleration values
-  step1.setAccelerationRad(13.0);
-  step2.setAccelerationRad(13.0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
 
   //Enable the stepper motor drivers
   pinMode(STEPPER_EN,OUTPUT);
@@ -133,53 +133,54 @@ void loop()
 
 
     if (pidOutput > 0){
-      step1.setTargetSpeedRad(-10);
-      step2.setTargetSpeedRad(10);
+      step1.setTargetSpeedRad(-20);
+      step2.setTargetSpeedRad(20);
     }
     else{
-      step1.setTargetSpeedRad(10);
-      step2.setTargetSpeedRad(-10);
+      step1.setTargetSpeedRad(20);
+      step2.setTargetSpeedRad(-20);
     }
 
   }
   
   //Print updates every PRINT_INTERVAL ms
-  if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    Serial.print("Tilt (mrad): ");
-    Serial.print(filteredAngle*1000);
-    Serial.print(", Tilt (deg): ");
-    Serial.print(filteredAngle*180/PI);
-    Serial.print(", Step1 Speed: ");
-    Serial.print(step1.getSpeedRad());
-    Serial.print(", Step2 Speed: ");
-    Serial.print(step2.getSpeedRad());
-    Serial.print(", Setpoint: ");
-    Serial.println(setpoint);
+  // if (millis() > printTimer) {
+  //   printTimer += PRINT_INTERVAL;
+  //   Serial.print("Tilt (mrad): ");
+  //   Serial.print(filteredAngle*1000);
+  //   Serial.print(", Tilt (deg): ");
+  //   Serial.print(filteredAngle*180/PI);
+  //   Serial.print(", Step1 Speed: ");
+  //   Serial.print(step1.getSpeedRad());
+  //   Serial.print(", Step2 Speed: ");
+  //   Serial.print(step2.getSpeedRad());
+  //   Serial.print(", Setpoint: ");
+  //   Serial.println(setpoint);
 
-  }
+  // }
 
-    mpuHandler.readData(mpu6050_data);
+    // mpuHandler.readData(mpu6050_data);
 
-    Serial.print("Acceleration X: ");
-    Serial.print(mpu6050_data.Acc_X);
-    Serial.print(", Y: ");
-    Serial.print(mpu6050_data.Acc_Y);
-    Serial.print(", Z: ");
-    Serial.println(mpu6050_data.Acc_Z);
+    // Serial.print("Acceleration X: ");
+    // Serial.print(mpu6050_data.Acc_X);
+    // Serial.print(", Y: ");
+    // Serial.print(mpu6050_data.Acc_Y);
+    // Serial.print(", Z: ");
+    // Serial.println(mpu6050_data.Acc_Z);
 
-    Serial.print("Gyro X: ");
-    Serial.print(mpu6050_data.Angle_Velocity_R);
-    Serial.print(", Y: ");
-    Serial.print(mpu6050_data.Angle_Velocity_P);
-    Serial.print(", Z: ");
-    Serial.println(mpu6050_data.Angle_Velocity_Y);
+    // Serial.print("Gyro X: ");
+    // Serial.print(mpu6050_data.Angle_Velocity_R);
+    // Serial.print(", Y: ");
+    // Serial.print(mpu6050_data.Angle_Velocity_P);
+    // Serial.print(", Z: ");
+    // Serial.println(mpu6050_data.Angle_Velocity_Y);
 
-    Serial.print("PID Output: ");
-    Serial.println(pidOutput);
+    // Serial.print("PID Output: ");
+    // Serial.println(pidOutput);
   
 
-    delay(100);
+    //
+    
 }
 
 
