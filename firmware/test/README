@@ -9,3 +9,10 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+This folder contains ArduinoIDE file to easily observe the gyro and acceleration
+
+upload mpu6050.h onto arduino point use .ino file to view it 
+
+choose band as 115200 in arduino IDE serial monitor
+

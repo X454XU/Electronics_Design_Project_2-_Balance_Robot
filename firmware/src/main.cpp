@@ -43,6 +43,7 @@ PID pid(kp, ki, kd, setpoint);
 // Complementary filter constant
 const double alpha = 0.98;
 double filteredAngle = 0.0;
+double prevFilteredAngle = 0.0;
 
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
@@ -114,11 +115,12 @@ void loop()
 
     accelAngle = atan2(a.acceleration.y, a.acceleration.z);
 
-    gyroRate = g.gyro.x;
+    gyroRate = g.gyro.z;
 
     double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
-    filteredAngle = alpha * (filteredAngle + gyroRate * dt) + (1 - alpha) * accelAngle;
-
+    filteredAngle = alpha * (prevFilteredAngle + gyroRate * dt) + (1 - alpha) * accelAngle;
+    prevFilteredAngle = filteredAngle;
+    
     pidOutput = pid.compute(filteredAngle);
 
     //Set target motor speed proportional to tilt angle
