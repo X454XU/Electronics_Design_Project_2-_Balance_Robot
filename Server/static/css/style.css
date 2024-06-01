@@ -66,6 +66,12 @@ body, html {
     text-align: center;
 }
 
+#video {
+    width: 640px;
+    height: 480px;
+    border: 1px solid black;
+}
+
 .battery-life {
     background-color: #666; /* Distinct grey for the battery life */
     padding: 20px;

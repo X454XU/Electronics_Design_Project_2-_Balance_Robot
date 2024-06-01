@@ -11,7 +11,18 @@
         <div class="sidebar">
             <div class="Block">
                 <div class="camera-section">
-                    <div class="camera-output">Camera Output</div>
+                    <div class="camera-output">
+                        <h1>Video Stream from Raspberry Pi</h1>
+                        <img id="video" src="" alt="Video Stream">
+                        <script>
+                            function fetchFrame() {
+                                const videoElement = document.getElementById('video');
+                                videoElement.src = '/video_feed?' + new Date().getTime();
+                            }
+                            // Fetch a new frame every 100ms
+                            setInterval(fetchFrame, 100);
+                        </script>
+                    </div>
                     <div class="battery-life">Battery Life</div>
                 </div>
             </div>
