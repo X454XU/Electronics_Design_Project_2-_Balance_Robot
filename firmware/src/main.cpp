@@ -5,6 +5,7 @@
 #include <step.h>
 #include <mpu6050.h>
 #include <PIDController.h>
+#include <chrono> // For time functions
 
 
 // The Stepper pins
@@ -46,6 +47,7 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
+bool impulseApplied = false;
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -116,7 +118,11 @@ void loop()
 
     // Calculate Tilt using accelerometer (simplified for small angles)
     accelAngle = a.acceleration.z/9.67;
-
+    double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+  
+    Serial.print(currentTime);
+    Serial.print(",");
+    Serial.println(accelAngle);
     // Get the rate of change from the gyroscope
     gyroRate = g.gyro.y; //* (PI / 180.0); 
 
@@ -142,24 +148,20 @@ void loop()
       step2.setTargetSpeedRad(-20);
     }
 
+    if (!impulseApplied && millis() > 10000) {
+      Serial.println("Applying impulse!");
+      step1.setTargetSpeedRad(100);
+      step2.setTargetSpeedRad(-100);
+      delay(250);  // Duration of the impulse
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
+      impulseApplied = true;
+    }
+
   }
   
   // Print updates every PRINT_INTERVAL ms
-  if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    Serial.print("Tilt (mrad): ");
-    Serial.print(filteredAngle*1000);
-    Serial.print(", Tilt (deg): ");
-    Serial.print(filteredAngle*180/PI);
-    Serial.print(", Step1 Speed: ");
-    Serial.print(step1.getSpeedRad());
-    Serial.print(", Step2 Speed: ");
-    Serial.print(step2.getSpeedRad());
-    Serial.print(", Setpoint: ");
-    Serial.println(setpoint);
-
-   }
-
+   
     // mpuHandler.readData(mpu6050_data);
 
     // Serial.print("Acceleration X: ");

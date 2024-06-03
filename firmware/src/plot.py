@@ -18,7 +18,7 @@ with open(csv_file_name, mode='w', newline='') as csv_file:
     csv_writer = csv.writer(csv_file)
 
     # Write CSV header
-    csv_writer.writerow(['Timestamp', 'Tilt (mrad)', 'Tilt (deg)', 'Step1 Speed', 'Step2 Speed', 'Setpoint'])
+    csv_writer.writerow(['Time', 'Angle'])
 
     try:
         while True:
@@ -30,8 +30,8 @@ with open(csv_file_name, mode='w', newline='') as csv_file:
                 data = line.split(',')
 
                 # Add a timestamp
-                timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-                data.insert(0, timestamp)
+                #timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+                #data.insert(0, timestamp)
 
                 # Write data to CSV file
                 csv_writer.writerow(data)
