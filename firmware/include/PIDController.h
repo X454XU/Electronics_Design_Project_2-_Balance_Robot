@@ -24,6 +24,8 @@ private:
     double lastTime; // Last time compute() was called
 
     double sampleTime; // Time interval between calculations
+
+    double lastOutput; // Last output
 };
 
 #endif // PID_H

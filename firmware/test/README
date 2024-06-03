@@ -9,3 +9,15 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+1. This folder contains ArduinoIDE file to easily observe the gyro and acceleration
+
+upload mpu6050.h onto arduino point use .ino file to view it 
+
+choose band as 115200 in arduino IDE serial monitor before uploading the mpu6050.h
+
+2. There is also a plot.py which is used for datavisualization, change the serial_port according to your computer
+
+DO NOT use platform IO to uploading the main.cpp and running this visualisation script at the same time. Port conflicts can occur if you do so. after Pulling this from GitHub, simply run "python plot.py" (you need to change serial_port first), Ctrl+C to interrupt it when you think you have enough data, then the data can be found in output.csv
+
+---- Seb on 31 May
