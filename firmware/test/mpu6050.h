@@ -17,9 +17,9 @@ struct MPU6050_DATA
   double Acc_Z = 0.0;
 
   
-  double Angle_Velocity_R = 0.0;
-  double Angle_Velocity_P = 0.0;
-  double Angle_Velocity_Y = 0.0;
+  double Angle_Velocity_Rotation = 0.0;
+  double Angle_Velocity_Pitch = 0.0;
+  double Angle_Velocity_Yaw = 0.0;
 
 }mpu6050_data;
 

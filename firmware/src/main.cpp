@@ -25,7 +25,7 @@ const int  STEPPER_INTERVAL_US = 20;
 //PID tuning parameters
 double kp = 1000;
 double ki = 0;
-double kd = 0;
+double kd = 15;
 double setpoint = 0.0629; // Adjust
 
 double pidOutput;
@@ -148,15 +148,17 @@ void loop()
       step2.setTargetSpeedRad(-20);
     }
 
-    if (!impulseApplied && millis() > 10000) {
-      Serial.println("Applying impulse!");
-      step1.setTargetSpeedRad(100);
-      step2.setTargetSpeedRad(-100);
-      delay(250);  // Duration of the impulse
-      step1.setTargetSpeedRad(0);
-      step2.setTargetSpeedRad(0);
-      impulseApplied = true;
-    }
+    // self-generated pulse
+
+    // if (!impulseApplied && millis() > 10000) { //apply impulse after 10000 milliseconds
+    //   Serial.println("Applying impulse!");
+    //   step1.setTargetSpeedRad(100);
+    //   step2.setTargetSpeedRad(-100);
+    //   delay(250);  // Duration of the impulse
+    //   step1.setTargetSpeedRad(0);
+    //   step2.setTargetSpeedRad(0);
+    //   impulseApplied = true;
+    // }
 
   }
   
