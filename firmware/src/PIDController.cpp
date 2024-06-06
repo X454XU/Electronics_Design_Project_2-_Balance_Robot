@@ -62,7 +62,7 @@ double PID::compute(double input) {
         double derivative = (input - prevInput) / timeChange;
 
         // Calculate output
-        double output = (kp * error) + integral + (kd * derivative);
+        double output = (kp * error) + ki * integral + (kd * derivative);
         // should it be plus between the second and the third term?
         output = std::max(outputMin, std::min(output, outputMax)); // Clamp output to output limits
 
