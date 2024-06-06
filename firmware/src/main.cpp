@@ -22,7 +22,7 @@ const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
 const int  STEPPER_INTERVAL_US = 20;
 
-const int COMMAND_INTERVAL = 10000; // 10 seconds, for testing
+const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 //PID tuning parameters
 double kp = 1000;
@@ -31,13 +31,14 @@ double kd = 15;
 double setpoint = 0.0629; // Adjust
 
 // PID tuning parameters for speed control
-double speedKp = 4;
+double speedKp = 400;
 double speedKi = 0;
 double speedKd = 0;
 double speedSetpoint = 0; // Desired speed
 
 double pidOutput;
 double speedPidOutput;
+double balanceControlOutput;
 
 
 //Global objects
@@ -55,11 +56,14 @@ PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 
 // Complementary filter constant
 const double alpha = 0.98; 
-const double speedAlpha = 0.2;
+const double speedAlpha = 0.1;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 double filteredSpeed = 0.0;
 double previousFilteredSpeed = 0.0;
+
+double previousPosition = 0.0;
+unsigned long previousTime = 0;
 
 bool impulseApplied = false;
 unsigned long commandTimer = 0;
@@ -159,25 +163,50 @@ void loop()
 
     pidOutput = balancePid.compute(filteredAngle);
 
-    double currentSpeed = (step1.getSpeed() + step2.getSpeed()) / 2.0;
+    double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
+    unsigned long currentMillis = millis();
+
+    // Calculate overall speed (rad/s) based on position change
+    double positionChange = currentPosition - previousPosition;
+    double timeChange = (currentMillis - previousTime) / 1000.0; // Convert to seconds
+    double overallSpeed = positionChange / timeChange;
+
+    // Update previous position and time
+    previousPosition = currentPosition;
+    previousTime = currentMillis;
     
+    double rateOfChangeSpeed = (overallSpeed - previousFilteredSpeed) / timeChange;
+
     // Apply complementary filter for speed
-    filteredSpeed = (1 - speedAlpha) * currentSpeed + speedAlpha * previousFilteredSpeed;
+    filteredSpeed = (1 - speedAlpha) * overallSpeed + speedAlpha * (previousFilteredSpeed + rateOfChangeSpeed * dt);
     previousFilteredSpeed = filteredSpeed;
     
-    speedPidOutput = speedPid.compute(filteredSpeed);
+    // Outer loop: Speed control
+    speedPid.setSetpoint(speedSetpoint);
+    double speedControlOutput = speedPid.compute(filteredSpeed);
 
-    // Set target motor speed proportional to tilt angle and speed control output
-    step1.setAccelerationRad(-pidOutput - speedPidOutput);
-    step2.setAccelerationRad(pidOutput + speedPidOutput);
+    // Inner loop: Balance control with speed control output as setpoint
+    balancePid.setSetpoint(speedControlOutput);
+    balanceControlOutput = balancePid.compute(filteredAngle);
 
-    if (pidOutput > 0){
-      step1.setTargetSpeedRad(-20);
-      step2.setTargetSpeedRad(20);
-    }
-    else{
-      step1.setTargetSpeedRad(20);
-      step2.setTargetSpeedRad(-20);
+    step1.setAccelerationRad(-balanceControlOutput);
+    step2.setAccelerationRad(balanceControlOutput);
+
+    // if (pidOutput > 0){
+    //   step1.setTargetSpeedRad(-20);
+    //   step2.setTargetSpeedRad(20);
+    // }
+    // else{
+    //   step1.setTargetSpeedRad(20);
+    //   step2.setTargetSpeedRad(-20);
+    // }
+
+    if (balanceControlOutput > 0){
+      step1.setTargetSpeedRad(-15);
+      step2.setTargetSpeedRad(15);
+    } else {
+      step1.setTargetSpeedRad(15);
+      step2.setTargetSpeedRad(-15);
     }
 
     // self-generated pulse
@@ -215,62 +244,69 @@ void loop()
   
 
   // Execute movement commands every COMMAND_INTERVAL ms
-  if (millis() - commandTimer > COMMAND_INTERVAL) {
-    commandTimer = millis();
+  // if (millis() - commandTimer > COMMAND_INTERVAL) {
+  //   commandTimer = millis();
 
-    switch (commandIndex) {
-      case 0:
-        Serial.println("Moving forward");
-        moveForward(10.0);  
-        break;
-      case 1:
-        Serial.println("Moving backward");
-        moveBackward(10.0);  
-        break;
-      case 2:
-        Serial.println("stopping");
-        stop();  
-        break;
-      // case 2:
-      //   Serial.println("Turning left");
-      //   turnLeft(5.0);  
-      //   break;
-      // case 3:
-      //   Serial.println("Turning right");
-      //   turnRight(5.0); 
-      //   break;
-      default:
-        commandIndex = -1;  // Reset index
-        break;
-    }
-    commandIndex++;
-  }
+  //   switch (commandIndex) {
+  //     case 0:
+  //       Serial.println("Moving forward");
+  //       moveForward(0.1);  
+  //       break;
+  //     case 1:
+  //       Serial.println("Moving backward");
+  //       moveBackward(0.1);  
+  //       break;
+  //     // case 2:
+  //     //   Serial.println("Turning left");
+  //     //   turnLeft(5.0);  
+  //     //   break;
+  //     // case 3:
+  //     //   Serial.println("Turning right");
+  //     //   turnRight(5.0); 
+  //     //   break;
+  //     default:
+  //       stop(); 
+  //       commandIndex = -1;  // Reset index
+  //       break;
+  //   }
+  //   commandIndex++;
+  // }
 
-    if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    Serial.print("Filtered Angle: ");
-    Serial.print(filteredAngle);
-    Serial.print(" PID Output: ");
-    Serial.print(pidOutput);
-    Serial.print(" Filtered Speed: ");
-    Serial.println(filteredSpeed);
-    Serial.print(" Speed PID Output: ");
-    Serial.println(speedPidOutput);
+  // if (millis() > printTimer) {
+  //   printTimer += PRINT_INTERVAL;
+  //   Serial.print("Filtered Angle: ");
+  //   Serial.print(filteredAngle);
+  //   Serial.print(" PID Output: ");
+  //   Serial.print(pidOutput);
+  //   Serial.print(" Filtered Speed: ");
+  //   Serial.println(filteredSpeed);
+  //   Serial.print(" Speed PID Output: ");
+  //   Serial.println(speedPidOutput);
+  // }
+
+  if (millis() > printTimer) {
+  printTimer += PRINT_INTERVAL;
+  Serial.print(" Output: ");
+  Serial.print(balanceControlOutput);
+  Serial.print(" Filtered Angle: ");
+  Serial.print(filteredAngle);
+  Serial.print(" PID Output: ");
+  Serial.print(pidOutput);
   }
     
 }
 
 // Functions to move forward, backward, and turn
 void stop() {
-  speedSetpoint = 0;
+  speedPid.setSetpoint(0);
 }
 
 void moveForward(double speed) {
-  speedSetpoint = speed;
+  speedPid.setSetpoint(speed);
 }
 
 void moveBackward(double speed) {
-  speedSetpoint = -speed;
+  speedPid.setSetpoint(-speed);
 }
 
 void turnLeft(double speed) {
