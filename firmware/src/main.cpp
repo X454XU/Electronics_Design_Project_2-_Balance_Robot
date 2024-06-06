@@ -22,13 +22,23 @@ const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
 const int  STEPPER_INTERVAL_US = 20;
 
+const int COMMAND_INTERVAL = 10000; // 10 seconds, for testing
+
 //PID tuning parameters
 double kp = 1000;
-double ki = 0;
+double ki = 1;
 double kd = 15;
 double setpoint = 0.0629; // Adjust
 
+// PID tuning parameters for speed control
+double speedKp = 4;
+double speedKi = 0;
+double speedKd = 0;
+double speedSetpoint = 0; // Desired speed
+
 double pidOutput;
+double speedPidOutput;
+
 
 //Global objects
 ESP32Timer ITimer(3);
@@ -40,14 +50,28 @@ step step2(STEPPER_INTERVAL_US,STEPPER2_STEP_PIN,STEPPER2_DIR_PIN );
 MPU6050Handler mpuHandler;
 MPU6050_DATA mpu6050_data;
 
-PID pid(kp, ki, kd, setpoint);
+PID balancePid(kp, ki, kd, setpoint);
+PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 
 // Complementary filter constant
 const double alpha = 0.98; 
+const double speedAlpha = 0.2;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
+double filteredSpeed = 0.0;
+double previousFilteredSpeed = 0.0;
 
 bool impulseApplied = false;
+unsigned long commandTimer = 0;
+int commandIndex = 0;
+
+
+// Function prototypes
+void moveForward(double speed);
+void moveBackward(double speed);
+void turnLeft(double speed);
+void turnRight(double speed);
+void stop();
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -98,6 +122,9 @@ void setup()
   pinMode(STEPPER_EN,OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
+  // Initialize command timer
+  commandTimer = millis();
+
 }
 
 void loop()
@@ -105,8 +132,7 @@ void loop()
   //Static variables are initialised once and then the value is remembered betweeen subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
-  static float accelAngle = 0.0;        // Current tilt angle from accelerometer
-  static float gyroRate = 0.0;          // Current rate of change from gyroscope
+  
   
   //Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
@@ -117,27 +143,33 @@ void loop()
     mpu.getEvent(&a, &g, &temp);
 
     // Calculate Tilt using accelerometer (simplified for small angles)
-    accelAngle = a.acceleration.z/9.67;
+    double accelAngle = a.acceleration.z/9.67;
     double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
   
-    Serial.print(currentTime);
-    Serial.print(",");
-    Serial.println(accelAngle);
+    // Serial.print(currentTime);
+    // Serial.print(",");
+    // Serial.println(accelAngle);
     // Get the rate of change from the gyroscope
-    gyroRate = g.gyro.y; //* (PI / 180.0); 
+    double gyroRate = g.gyro.y; //* (PI / 180.0); 
 
     // Apply complementary filter
     double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
     filteredAngle = (1 - alpha) * accelAngle + alpha * (previousFilteredAngle + gyroRate * dt);
     previousFilteredAngle = filteredAngle;
 
-    pidOutput = pid.compute(filteredAngle);
+    pidOutput = balancePid.compute(filteredAngle);
 
-    //Set target motor speed proportional to tilt angle
-    //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
-    step1.setAccelerationRad(-pidOutput);
-    step2.setAccelerationRad(pidOutput);
+    double currentSpeed = (step1.getSpeed() + step2.getSpeed()) / 2.0;
+    
+    // Apply complementary filter for speed
+    filteredSpeed = (1 - speedAlpha) * currentSpeed + speedAlpha * previousFilteredSpeed;
+    previousFilteredSpeed = filteredSpeed;
+    
+    speedPidOutput = speedPid.compute(filteredSpeed);
 
+    // Set target motor speed proportional to tilt angle and speed control output
+    step1.setAccelerationRad(-pidOutput - speedPidOutput);
+    step2.setAccelerationRad(pidOutput + speedPidOutput);
 
     if (pidOutput > 0){
       step1.setTargetSpeedRad(-20);
@@ -161,33 +193,95 @@ void loop()
     // }
 
   }
+
   
   // Print updates every PRINT_INTERVAL ms
    
-    // mpuHandler.readData(mpu6050_data);
-
-    // Serial.print("Acceleration X: ");
-    // Serial.print(mpu6050_data.Acc_X);
-    // Serial.print(", Y: ");
-    // Serial.print(mpu6050_data.Acc_Y);
-    // Serial.print(", Z: ");
-    // Serial.println(mpu6050_data.Acc_Z);
-
-    // Serial.print("Gyro X: ");
-    // Serial.print(mpu6050_data.Angle_Velocity_R);
-    // Serial.print(", Y: ");
-    // Serial.print(mpu6050_data.Angle_Velocity_P);
-    // Serial.print(", Z: ");
-    // Serial.println(mpu6050_data.Angle_Velocity_Y);
-
-    // Serial.print("PID Output: ");
-    // Serial.println(pidOutput);
+  // mpuHandler.readData(mpu6050_data);
+  // Serial.print("Acceleration X: ");
+  // Serial.print(mpu6050_data.Acc_X);
+  // Serial.print(", Y: ");
+  // Serial.print(mpu6050_data.Acc_Y);
+  // Serial.print(", Z: ");
+  // Serial.println(mpu6050_data.Acc_Z);
+  // Serial.print("Gyro X: ");
+  // Serial.print(mpu6050_data.Angle_Velocity_R);
+  // Serial.print(", Y: ");
+  // Serial.print(mpu6050_data.Angle_Velocity_P);
+  // Serial.print(", Z: ");
+  // Serial.println(mpu6050_data.Angle_Velocity_Y);
+  // Serial.print("PID Output: ");
+  // Serial.println(pidOutput);
   
 
-    //
+  // Execute movement commands every COMMAND_INTERVAL ms
+  if (millis() - commandTimer > COMMAND_INTERVAL) {
+    commandTimer = millis();
+
+    switch (commandIndex) {
+      case 0:
+        Serial.println("Moving forward");
+        moveForward(10.0);  
+        break;
+      case 1:
+        Serial.println("Moving backward");
+        moveBackward(10.0);  
+        break;
+      case 2:
+        Serial.println("stopping");
+        stop();  
+        break;
+      // case 2:
+      //   Serial.println("Turning left");
+      //   turnLeft(5.0);  
+      //   break;
+      // case 3:
+      //   Serial.println("Turning right");
+      //   turnRight(5.0); 
+      //   break;
+      default:
+        commandIndex = -1;  // Reset index
+        break;
+    }
+    commandIndex++;
+  }
+
+    if (millis() > printTimer) {
+    printTimer += PRINT_INTERVAL;
+    Serial.print("Filtered Angle: ");
+    Serial.print(filteredAngle);
+    Serial.print(" PID Output: ");
+    Serial.print(pidOutput);
+    Serial.print(" Filtered Speed: ");
+    Serial.println(filteredSpeed);
+    Serial.print(" Speed PID Output: ");
+    Serial.println(speedPidOutput);
+  }
     
 }
 
+// Functions to move forward, backward, and turn
+void stop() {
+  speedSetpoint = 0;
+}
+
+void moveForward(double speed) {
+  speedSetpoint = speed;
+}
+
+void moveBackward(double speed) {
+  speedSetpoint = -speed;
+}
+
+void turnLeft(double speed) {
+  step1.setTargetSpeedRad(-speed);
+  step2.setTargetSpeedRad(speed);
+}
+
+void turnRight(double speed) {
+  step1.setTargetSpeedRad(speed);
+  step2.setTargetSpeedRad(-speed);
+}
 
 
 
