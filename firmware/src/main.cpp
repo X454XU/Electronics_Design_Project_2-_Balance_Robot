@@ -28,17 +28,19 @@ const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 double kp = 1000;
 double ki = 1;
 double kd = 15;
-double setpoint = 0.0629; // Adjust
+double setpoint = 0.0629; 
 
 // PID tuning parameters for speed control
-double speedKp = 400;
+double speedKp = 100;
 double speedKi = 0;
 double speedKd = 0;
 double speedSetpoint = 0; // Desired speed
 
 double pidOutput;
 double speedPidOutput;
+double speedControlOutput;
 double balanceControlOutput;
+double desiredTiltAngle;
 
 
 //Global objects
@@ -183,23 +185,17 @@ void loop()
     
     // Outer loop: Speed control
     speedPid.setSetpoint(speedSetpoint);
-    double speedControlOutput = speedPid.compute(filteredSpeed);
+    speedControlOutput = speedPid.compute(filteredSpeed);
+
+    desiredTiltAngle = setpoint + (speedControlOutput * 0.01);
 
     // Inner loop: Balance control with speed control output as setpoint
-    balancePid.setSetpoint(speedControlOutput);
+    balancePid.setSetpoint(desiredTiltAngle);
     balanceControlOutput = balancePid.compute(filteredAngle);
 
     step1.setAccelerationRad(-balanceControlOutput);
     step2.setAccelerationRad(balanceControlOutput);
 
-    // if (pidOutput > 0){
-    //   step1.setTargetSpeedRad(-20);
-    //   step2.setTargetSpeedRad(20);
-    // }
-    // else{
-    //   step1.setTargetSpeedRad(20);
-    //   step2.setTargetSpeedRad(-20);
-    // }
 
     if (balanceControlOutput > 0){
       step1.setTargetSpeedRad(-15);
@@ -272,26 +268,24 @@ void loop()
   //   commandIndex++;
   // }
 
-  // if (millis() > printTimer) {
-  //   printTimer += PRINT_INTERVAL;
-  //   Serial.print("Filtered Angle: ");
-  //   Serial.print(filteredAngle);
-  //   Serial.print(" PID Output: ");
-  //   Serial.print(pidOutput);
-  //   Serial.print(" Filtered Speed: ");
-  //   Serial.println(filteredSpeed);
-  //   Serial.print(" Speed PID Output: ");
-  //   Serial.println(speedPidOutput);
-  // }
-
   if (millis() > printTimer) {
-  printTimer += PRINT_INTERVAL;
-  Serial.print(" Output: ");
-  Serial.print(balanceControlOutput);
-  Serial.print(" Filtered Angle: ");
-  Serial.print(filteredAngle);
-  Serial.print(" PID Output: ");
-  Serial.print(pidOutput);
+    printTimer += PRINT_INTERVAL;
+    Serial.print(" Filtered Angle: ");
+    Serial.println(filteredAngle);
+    Serial.print(" Filtered Speed: ");
+    Serial.println(filteredSpeed);
+    // Serial.print(" Target Angle: ");
+    // Serial.println(setpoint);
+    // Serial.print(" Target Speed: ");
+    // Serial.println(speedSetpoint);
+    Serial.print(" Target angle: ");
+    Serial.println(desiredTiltAngle);
+
+    Serial.print(" Speed Output: ");
+    Serial.println(speedControlOutput);
+
+    Serial.print(" Output: ");
+    Serial.println(balanceControlOutput);
   }
     
 }
