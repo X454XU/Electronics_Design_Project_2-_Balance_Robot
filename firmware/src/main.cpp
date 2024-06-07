@@ -83,6 +83,9 @@ double smoothedSpeed = 0.0;
 float pitch = 0.0;
 bool motorsEnabled = true; // Variable to track motor state
 
+// Maybe need further tuning
+const double deadBand = 10; // Dead-band threshold for ignoring small angle changes
+
 // Function prototypes
 void moveForward(double speed);
 void moveBackward(double speed);
@@ -221,6 +224,11 @@ void loop()
       // Inner loop: Balance control with speed control output as setpoint
       balancePid.setSetpoint(setpoint);
       balanceControlOutput = balancePid.compute(filteredAngle);
+
+      // Apply dead-band
+      if (abs(balanceControlOutput) < deadBand) {
+        balanceControlOutput = 0;
+      }
 
       step1.setAccelerationRad(-balanceControlOutput);
       step2.setAccelerationRad(balanceControlOutput);
