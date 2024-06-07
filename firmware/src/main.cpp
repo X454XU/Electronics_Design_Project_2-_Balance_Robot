@@ -24,10 +24,10 @@ const int  STEPPER_INTERVAL_US = 20;
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 //PID tuning parameters
-double kp = 1000;
-double ki = 1;
-double kd = 15;
-double setpoint = 0; // 0.0629; 
+double kp = 1080;
+double ki = 1.44;
+double kd = 21;
+double setpoint = 0; 
 
 // PID tuning parameters for speed control
 double speedKp = 100;
@@ -84,7 +84,7 @@ float pitch = 0.0;
 bool motorsEnabled = true; // Variable to track motor state
 
 // Maybe need further tuning
-const double deadBand = 10; // Dead-band threshold for ignoring small angle changes
+const double deadBand = 5; // Dead-band threshold for ignoring small angle changes
 
 // Function prototypes
 void moveForward(double speed);
@@ -166,7 +166,7 @@ void setup()
 
 void loop()
 {
-  //Static variables are initialised once and then the value is remembered betweeen subsequent calls to this function
+  //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
 
@@ -234,16 +234,20 @@ void loop()
       step2.setAccelerationRad(balanceControlOutput);
 
       if (balanceControlOutput > 0) {
-        step1.setTargetSpeedRad(-15);
-        step2.setTargetSpeedRad(15);
-      } else {
-        step1.setTargetSpeedRad(15);
-        step2.setTargetSpeedRad(-15);
+        step1.setTargetSpeedRad(-20);
+        step2.setTargetSpeedRad(20);
+      } 
+      if(balanceControlOutput < 0) {
+        step1.setTargetSpeedRad(20);
+        step2.setTargetSpeedRad(-20);
       }
-    } else {
-      step1.setTargetSpeedRad(0);
-      step2.setTargetSpeedRad(0);
-    }
+      /*if(setpoint == 0){
+        if(balanceControlOutput < 0){setpoint += 0.0015;
+        Serial.print("hi");}
+        if(balanceControlOutput > 0){setpoint -= 0.0015;}
+      }*/
+
+    } 
   }
 
   // Print updates every PRINT_INTERVAL ms
