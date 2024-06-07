@@ -7,7 +7,6 @@
 #include <PIDController.h>
 #include <chrono> // For time functions
 
-
 // Task handles
 TaskHandle_t Balance;
 TaskHandle_t Movement;
@@ -54,6 +53,7 @@ double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
 bool impulseApplied = false;
+
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -67,7 +67,7 @@ bool timerHandler(void * timerNo)
   //Indicate that the ISR is running
   digitalWrite(TOGGLE_PIN,toggle);  
   toggle = !toggle;
-	return true;
+  return true;
 }
 
 void BalanceCode(void * parameter){
@@ -106,7 +106,6 @@ void BalanceCode(void * parameter){
         step1.setAccelerationRad(-pidOutput);
         step2.setAccelerationRad(pidOutput);
 
-
         if (pidOutput > 0){
           step1.setTargetSpeedRad(-20);
           step2.setTargetSpeedRad(20);
@@ -115,50 +114,16 @@ void BalanceCode(void * parameter){
           step1.setTargetSpeedRad(20);
           step2.setTargetSpeedRad(-20);
         }
-
-        // self-generated pulse
-
-        // if (!impulseApplied && millis() > 10000) { //apply impulse after 10000 milliseconds
-        //   Serial.println("Applying impulse!");
-        //   step1.setTargetSpeedRad(100);
-        //   step2.setTargetSpeedRad(-100);
-        //   delay(250);  // Duration of the impulse
-        //   step1.setTargetSpeedRad(0);
-        //   step2.setTargetSpeedRad(0);
-        //   impulseApplied = true;
-        // }
-
       }
     }
-      
-    
-    // Print updates every PRINT_INTERVAL ms
-    
-      // mpuHandler.readData(mpu6050_data);
-
-      // Serial.print("Acceleration X: ");
-      // Serial.print(mpu6050_data.Acc_X);
-      // Serial.print(", Y: ");
-      // Serial.print(mpu6050_data.Acc_Y);
-      // Serial.print(", Z: ");
-      // Serial.println(mpu6050_data.Acc_Z);
-
-      // Serial.print("Gyro X: ");
-      // Serial.print(mpu6050_data.Angle_Velocity_R);
-      // Serial.print(", Y: ");
-      // Serial.print(mpu6050_data.Angle_Velocity_P);
-      // Serial.print(", Z: ");
-      // Serial.println(mpu6050_data.Angle_Velocity_Y);
-
-      // Serial.print("PID Output: ");
-      // Serial.println(pidOutput);
-    
-
-      //
-      //Serial.println("Balance is working");
   }
 }
 
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  delay(10);  // Allow some time for the steppers to stop
+}
 
 void MovementCode(void * parameter) {
   for(;;) {
@@ -170,6 +135,14 @@ void MovementCode(void * parameter) {
       Serial.print("Received: ");
       Serial.println(incomingByte);
       
+      input = true; // Indicate that we are handling input
+      resetSteppers(); // Stop any ongoing movements before applying new command
+      
+      
+      // turning right and turning left may be reversed,
+      // hold wasd keys to keep increasing the turning or tilting angle
+      // moving forward and backward need to be combined with PID to make sure the
+      // forward distance is not neutralized by the backward balancing deviation 
       if (incomingByte == 'w'){
         input = true;
         Serial.println("impulse forwards");
@@ -191,7 +164,7 @@ void MovementCode(void * parameter) {
         step1.setTargetSpeedRad(0);
         step2.setTargetSpeedRad(0);
       } else if (incomingByte == 'a'){
-        input = true;
+              input = true;
         Serial.println("impulse left");
         step1.setAccelerationRad(80);
         step2.setAccelerationRad(80);
@@ -216,14 +189,11 @@ void MovementCode(void * parameter) {
   }
 }
 
-
-
 void setup()
 {
   Serial.begin(115200);
-  pinMode(TOGGLE_PIN,OUTPUT);
+  pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
-
 
   // Try to initialize Accelerometer/Gyroscope
   if (!mpu.begin()) {
@@ -241,7 +211,7 @@ void setup()
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
     Serial.println("Failed to start stepper interrupt");
     while (1) delay(10);
-    }
+  }
   Serial.println("Initialised Interrupt for Stepper");
 
   //Set motor acceleration values
@@ -249,29 +219,28 @@ void setup()
   step2.setAccelerationRad(0);
 
   //Enable the stepper motor drivers
-  pinMode(STEPPER_EN,OUTPUT);
+  pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-   xTaskCreate(
+  xTaskCreate(
     BalanceCode,    // Function that should be called
     "Balance",     // Name of the task (for debugging)
     10000,        // Stack size (bytes)
     NULL,         // Parameter to pass
     1,            // Task priority
-    &Balance        // Task handle
+    &Balance      // Task handle
   );
 
   xTaskCreate(
-    MovementCode,    // Function that should be called
+    MovementCode,   // Function that should be called
     "Movement",     // Name of the task (for debugging)
     10000,        // Stack size (bytes)
     NULL,         // Parameter to pass
     1,            // Task priority
-    &Movement        // Task handle
+    &Movement     // Task handle
   );
-
 }
 
-void loop(){
-
+void loop() {
+  // No code needed here
 }
