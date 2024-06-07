@@ -28,7 +28,7 @@ const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 double kp = 1000;
 double ki = 1;
 double kd = 15;
-double setpoint = 0; // 0.0629; 
+double setpoint = 0; //0.0629; 
 
 // PID tuning parameters for speed control
 double speedKp = 100;
@@ -69,7 +69,7 @@ double previousFilteredSpeed = 0.0;
 double turningSpeed = 0;
 
 double previousPosition = 0.0;
-unsigned long previousTime = 0;
+unsigned long previousMicros = 0;
 
 bool impulseApplied = false;
 unsigned long commandTimer = 0;
@@ -77,6 +77,12 @@ int commandIndex = 0;
 
 double pitchCalibration = 0.0;
 double yawCalibration = 0.0;
+
+double overallSpeed = 0.0;
+const double alphaSpeed = 0.1; // Smoothing factor for speed
+double smoothedSpeed = 0.0;
+
+float pitch = 0.0;
 
 
 // Function prototypes
@@ -143,13 +149,17 @@ void setup()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    yawSum += g.gyro.x;
-    pitchSum += g.gyro.y;
+    //yawSum += 
+    pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
 
-    delay(5);
+    delay(10);
   }
-  yawCalibration = yawSum / 500.0;
+  //yawCalibration = yawSum / 500.0;
   pitchCalibration = pitchSum / 500.0;
+
+  Serial.print(pitchCalibration);
+
+  previousMicros = micros();
 
   // Initialize command timer
   commandTimer = millis();
@@ -171,51 +181,71 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    //double gyroPitchRaw = g.gyro.y;
-    //gyroPitchRaw -= pitchCalibration;
-    //double angleChange;
-    //angleChange += gyroPitchRaw * 0.01;
-
-
 
     // Calculate Tilt using accelerometer (simplified for small angles)
-    double accelAngle = a.acceleration.z/9.67;
+    //double accelAngle = a.acceleration.z/9.67;
     //double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
   
-    // Serial.print(currentTime);
-    // Serial.print(",");
-    // Serial.println(accelAngle);
     // Get the rate of change from the gyroscope
-    double gyroRate = g.gyro.y; //* (PI / 180.0); 
+    //double gyroRate = g.gyro.y - pitchCalibration; 
+
+    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - pitchCalibration; //atan2(a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) - pitchCalibration;
+    //float roll = atan2(a.acceleration.y, a.acceleration.z);
+
+    // Gyro rates (rate of change of tilt) in radians
+    float gyroPitchRate = g.gyro.y; // Pitch rate
+    //float gyroRollRate = g.gyro.z;  // Roll rate
+    //float gyroYawRate = g.gyro.x;   // Yaw rate
 
     // Apply complementary filter
     double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
-    filteredAngle = (1 - alpha) * accelAngle + alpha * (previousFilteredAngle + gyroRate * dt);
+    filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
     previousFilteredAngle = filteredAngle;
 
     pidOutput = balancePid.compute(filteredAngle);
 
-    double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
+    /*double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
     unsigned long currentMillis = millis();
 
     // Calculate overall speed (rad/s) based on position change
     double positionChange = currentPosition - previousPosition;
     double timeChange = (currentMillis - previousTime) / 1000.0; // Convert to seconds
-    double overallSpeed = positionChange / timeChange;
+    overallSpeed = positionChange / timeChange;
 
     // Update previous position and time
     previousPosition = currentPosition;
     previousTime = currentMillis;
-    
+    */
+
+    double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
+    unsigned long currentMicros = micros(); // Use micros() for better precision
+
+    // Calculate overall speed (rad/s) based on position change
+    double positionChange = currentPosition - previousPosition;
+    double timeChange = (currentMicros - previousMicros) / 1000000.0; // Convert to seconds
+
+    // Ensure timeChange is not zero to avoid division by zero
+    if (timeChange > 0.001) { // Ensure a minimum time interval of 1ms to avoid large jumps
+        double instantSpeed = positionChange / timeChange;
+        // Apply exponential moving average to smooth the speed readings
+        smoothedSpeed = (alphaSpeed * instantSpeed) + ((1 - alphaSpeed) * smoothedSpeed);
+        overallSpeed = smoothedSpeed;
+    } else {
+        overallSpeed = smoothedSpeed; // Keep the previous smoothed speed if timeChange is too small
+    }
+
+    // Update previous position and time
+    previousPosition = currentPosition;
+    previousMicros = currentMicros;
     
     // Outer loop: Speed control
     speedPid.setSetpoint(speedSetpoint);
     speedControlOutput = speedPid.compute(overallSpeed);
 
-    desiredTiltAngle = setpoint + (speedControlOutput * 0.01);
+    desiredTiltAngle = speedControlOutput;
 
     // Inner loop: Balance control with speed control output as setpoint
-    balancePid.setSetpoint(desiredTiltAngle);
+    balancePid.setSetpoint(setpoint);
     balanceControlOutput = balancePid.compute(filteredAngle);
 
     step1.setAccelerationRad(-balanceControlOutput);
@@ -295,25 +325,28 @@ void loop()
   //   commandIndex++;
   // }
 
-  /*if (millis() > printTimer) {
+  if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
     Serial.print(" Filtered Angle: ");
     Serial.println(filteredAngle);
-    Serial.print(" Filtered Speed: ");
-    Serial.println(filteredSpeed);
-    Serial.print(" Target Angle: ");
+    Serial.print(" Speed: ");
+    Serial.println(overallSpeed);
+    Serial.print(" Target Angle inner loop: ");
     Serial.println(setpoint);
     // Serial.print(" Target Speed: ");
     // Serial.println(speedSetpoint);
-    Serial.print(" Target angle: ");
+    Serial.print(" Target angle outer loop: ");
     Serial.println(desiredTiltAngle);
 
     Serial.print(" Speed Output: ");
     Serial.println(speedControlOutput);
 
+    Serial.print(" pitch: ");
+    Serial.println(pitch);
+    
     Serial.print(" Output: ");
     Serial.println(balanceControlOutput);
-  }*/
+  }
     
 }
 
