@@ -122,6 +122,8 @@ void BalanceCode(void * parameter){
 void resetSteppers() {
   step1.setTargetSpeedRad(0);
   step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
   delay(10);  // Allow some time for the steppers to stop
 }
 
@@ -134,9 +136,12 @@ void MovementCode(void * parameter) {
       // Print the received byte
       Serial.print("Received: ");
       Serial.println(incomingByte);
-      
-      input = true; // Indicate that we are handling input
-      resetSteppers(); // Stop any ongoing movements before applying new command
+
+      float accel1 = 0;
+      float accel2 = 0;
+      float tspeed1 = 0;
+      float tspeed2 = 0;
+
       
       
       // turning right and turning left may be reversed,
@@ -144,47 +149,42 @@ void MovementCode(void * parameter) {
       // moving forward and backward need to be combined with PID to make sure the
       // forward distance is not neutralized by the backward balancing deviation 
       if (incomingByte == 'w'){
-        input = true;
         Serial.println("impulse forwards");
-        step1.setAccelerationRad(80);
-        step2.setAccelerationRad(-80);
-        step1.setTargetSpeedRad(20);
-        step2.setTargetSpeedRad(-20);
-        delay(10);  // Duration of the impulse
-        step1.setTargetSpeedRad(0);
-        step2.setTargetSpeedRad(0);
+        accel1 = 80;
+        accel2 = -80;
+        tspeed1 = 20;
+        tspeed2 = -20;
       } else if (incomingByte == 's'){
-        input = true;
         Serial.println("impulse backwards");
-        step1.setAccelerationRad(-80);
-        step2.setAccelerationRad(80);
-        step1.setTargetSpeedRad(-20);
-        step2.setTargetSpeedRad(20);
-        delay(10);  // Duration of the impulse
-        step1.setTargetSpeedRad(0);
-        step2.setTargetSpeedRad(0);
+        accel1 = -80;
+        accel2 = 80;
+        tspeed1 = -20;
+        tspeed2 = 20;
       } else if (incomingByte == 'a'){
-              input = true;
         Serial.println("impulse left");
-        step1.setAccelerationRad(80);
-        step2.setAccelerationRad(80);
-        step1.setTargetSpeedRad(20);
-        step2.setTargetSpeedRad(20);
-        delay(10);  // Duration of the impulse
-        step1.setTargetSpeedRad(0);
-        step2.setTargetSpeedRad(0);
+        accel1 = -40;
+        accel2 = -40;
+        tspeed1 = -20;
+        tspeed2 = -20;
       } else if (incomingByte == 'd'){
-        input = true;
         Serial.println("impulse right");
-        step1.setAccelerationRad(-80);
-        step2.setAccelerationRad(-80);
-        step1.setTargetSpeedRad(-20);
-        step2.setTargetSpeedRad(-20);
-        delay(10);  // Duration of the impulse
-        step1.setTargetSpeedRad(0);
-        step2.setTargetSpeedRad(0);
+        accel1 = 40;
+        accel2 = 40;
+        tspeed1 = 20;
+        tspeed2 = 20;
       }
-      input = false;
+
+      //the actual input sequence
+      if (incomingByte == 'w' || incomingByte == 'a' || incomingByte == 's' || incomingByte == 'd'){
+        input = true; // Indicate that we are handling input
+        step1.setAccelerationRad(accel1);
+        step2.setAccelerationRad(accel2);
+        step1.setTargetSpeedRad(tspeed1);
+        step2.setTargetSpeedRad(tspeed2);
+        delay(50);  // Duration of the impulse
+        resetSteppers(); // Stop any ongoing movements before applying new command
+        input = false;
+      } 
     }
   }
 }

@@ -105,6 +105,17 @@ public:
         return static_cast<float>(speed) * STEP_ANGLE / SPEED_SCALE;
     }
 
+    float setAcceleration() {
+        return accel;
+    }
+    
+    //Get current speed in rad/s. Do not call from ISR
+    float setAccelerationRad() {
+        return static_cast<float>(accel) * STEP_ANGLE;
+    }
+
+    
+
     private:
 
     int32_t stepTimer = 0;      //time since last step (μs)
