@@ -11,6 +11,8 @@
 // Task handles
 TaskHandle_t Balance;
 TaskHandle_t Movement;
+//flag for switching tasks
+bool input = false;
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -98,34 +100,37 @@ void BalanceCode(void * parameter){
 
       pidOutput = pid.compute(filteredAngle);
 
-      //Set target motor speed proportional to tilt angle
-      //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
-      step1.setAccelerationRad(-pidOutput);
-      step2.setAccelerationRad(pidOutput);
+      if (!input){
+        //Set target motor speed proportional to tilt angle
+        //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
+        step1.setAccelerationRad(-pidOutput);
+        step2.setAccelerationRad(pidOutput);
 
 
-      if (pidOutput > 0){
-        step1.setTargetSpeedRad(-20);
-        step2.setTargetSpeedRad(20);
+        if (pidOutput > 0){
+          step1.setTargetSpeedRad(-20);
+          step2.setTargetSpeedRad(20);
+        }
+        else{
+          step1.setTargetSpeedRad(20);
+          step2.setTargetSpeedRad(-20);
+        }
+
+        // self-generated pulse
+
+        // if (!impulseApplied && millis() > 10000) { //apply impulse after 10000 milliseconds
+        //   Serial.println("Applying impulse!");
+        //   step1.setTargetSpeedRad(100);
+        //   step2.setTargetSpeedRad(-100);
+        //   delay(250);  // Duration of the impulse
+        //   step1.setTargetSpeedRad(0);
+        //   step2.setTargetSpeedRad(0);
+        //   impulseApplied = true;
+        // }
+
       }
-      else{
-        step1.setTargetSpeedRad(20);
-        step2.setTargetSpeedRad(-20);
-      }
-
-      // self-generated pulse
-
-      // if (!impulseApplied && millis() > 10000) { //apply impulse after 10000 milliseconds
-      //   Serial.println("Applying impulse!");
-      //   step1.setTargetSpeedRad(100);
-      //   step2.setTargetSpeedRad(-100);
-      //   delay(250);  // Duration of the impulse
-      //   step1.setTargetSpeedRad(0);
-      //   step2.setTargetSpeedRad(0);
-      //   impulseApplied = true;
-      // }
-
     }
+      
     
     // Print updates every PRINT_INTERVAL ms
     
@@ -164,6 +169,49 @@ void MovementCode(void * parameter) {
       // Print the received byte
       Serial.print("Received: ");
       Serial.println(incomingByte);
+      
+      if (incomingByte == 'w'){
+        input = true;
+        Serial.println("impulse forwards");
+        step1.setAccelerationRad(80);
+        step2.setAccelerationRad(-80);
+        step1.setTargetSpeedRad(20);
+        step2.setTargetSpeedRad(-20);
+        delay(10);  // Duration of the impulse
+        step1.setTargetSpeedRad(0);
+        step2.setTargetSpeedRad(0);
+      } else if (incomingByte == 's'){
+        input = true;
+        Serial.println("impulse backwards");
+        step1.setAccelerationRad(-80);
+        step2.setAccelerationRad(80);
+        step1.setTargetSpeedRad(-20);
+        step2.setTargetSpeedRad(20);
+        delay(10);  // Duration of the impulse
+        step1.setTargetSpeedRad(0);
+        step2.setTargetSpeedRad(0);
+      } else if (incomingByte == 'a'){
+        input = true;
+        Serial.println("impulse left");
+        step1.setAccelerationRad(80);
+        step2.setAccelerationRad(80);
+        step1.setTargetSpeedRad(20);
+        step2.setTargetSpeedRad(20);
+        delay(10);  // Duration of the impulse
+        step1.setTargetSpeedRad(0);
+        step2.setTargetSpeedRad(0);
+      } else if (incomingByte == 'd'){
+        input = true;
+        Serial.println("impulse right");
+        step1.setAccelerationRad(-80);
+        step2.setAccelerationRad(-80);
+        step1.setTargetSpeedRad(-20);
+        step2.setTargetSpeedRad(-20);
+        delay(10);  // Duration of the impulse
+        step1.setTargetSpeedRad(0);
+        step2.setTargetSpeedRad(0);
+      }
+      input = false;
     }
   }
 }
