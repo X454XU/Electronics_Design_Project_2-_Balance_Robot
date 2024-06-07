@@ -28,7 +28,7 @@ const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 double kp = 1000;
 double ki = 1;
 double kd = 15;
-double setpoint = 0.0629; 
+double setpoint = 0; // 0.0629; 
 
 // PID tuning parameters for speed control
 double speedKp = 100;
@@ -59,10 +59,14 @@ PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 // Complementary filter constant
 const double alpha = 0.98; 
 const double speedAlpha = 0.1;
+
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
+
 double filteredSpeed = 0.0;
 double previousFilteredSpeed = 0.0;
+
+double turningSpeed = 0;
 
 double previousPosition = 0.0;
 unsigned long previousTime = 0;
@@ -70,6 +74,9 @@ unsigned long previousTime = 0;
 bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
+
+double pitchCalibration = 0.0;
+double yawCalibration = 0.0;
 
 
 // Function prototypes
@@ -96,7 +103,7 @@ bool timerHandler(void * timerNo)
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
   pinMode(TOGGLE_PIN,OUTPUT);
   mpuHandler.init();
 
@@ -128,6 +135,22 @@ void setup()
   pinMode(STEPPER_EN,OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
+
+  double yawSum = 0;
+  double pitchSum = 0;
+
+  for (int i = 0; i < 500; ++i) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    yawSum += g.gyro.x;
+    pitchSum += g.gyro.y;
+
+    delay(5);
+  }
+  yawCalibration = yawSum / 500.0;
+  pitchCalibration = pitchSum / 500.0;
+
   // Initialize command timer
   commandTimer = millis();
 
@@ -148,9 +171,16 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
+    //double gyroPitchRaw = g.gyro.y;
+    //gyroPitchRaw -= pitchCalibration;
+    //double angleChange;
+    //angleChange += gyroPitchRaw * 0.01;
+
+
+
     // Calculate Tilt using accelerometer (simplified for small angles)
     double accelAngle = a.acceleration.z/9.67;
-    double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+    //double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
   
     // Serial.print(currentTime);
     // Serial.print(",");
@@ -177,15 +207,10 @@ void loop()
     previousPosition = currentPosition;
     previousTime = currentMillis;
     
-    double rateOfChangeSpeed = (overallSpeed - previousFilteredSpeed) / timeChange;
-
-    // Apply complementary filter for speed
-    filteredSpeed = (1 - speedAlpha) * overallSpeed + speedAlpha * (previousFilteredSpeed + rateOfChangeSpeed * dt);
-    previousFilteredSpeed = filteredSpeed;
     
     // Outer loop: Speed control
     speedPid.setSetpoint(speedSetpoint);
-    speedControlOutput = speedPid.compute(filteredSpeed);
+    speedControlOutput = speedPid.compute(overallSpeed);
 
     desiredTiltAngle = setpoint + (speedControlOutput * 0.01);
 
@@ -221,22 +246,24 @@ void loop()
 
   
   // Print updates every PRINT_INTERVAL ms
-   
-  // mpuHandler.readData(mpu6050_data);
-  // Serial.print("Acceleration X: ");
-  // Serial.print(mpu6050_data.Acc_X);
-  // Serial.print(", Y: ");
-  // Serial.print(mpu6050_data.Acc_Y);
-  // Serial.print(", Z: ");
-  // Serial.println(mpu6050_data.Acc_Z);
-  // Serial.print("Gyro X: ");
-  // Serial.print(mpu6050_data.Angle_Velocity_R);
-  // Serial.print(", Y: ");
-  // Serial.print(mpu6050_data.Angle_Velocity_P);
-  // Serial.print(", Z: ");
-  // Serial.println(mpu6050_data.Angle_Velocity_Y);
-  // Serial.print("PID Output: ");
-  // Serial.println(pidOutput);
+  /*if (millis() > printTimer) {
+    printTimer += PRINT_INTERVAL;
+    mpuHandler.readData(mpu6050_data);
+    Serial.print("Acceleration X: ");
+    Serial.print(mpu6050_data.Acc_X);
+    Serial.print(", Y: ");
+    Serial.print(mpu6050_data.Acc_Y);
+    Serial.print(", Z: ");
+    Serial.println(mpu6050_data.Acc_Z);
+    Serial.print("Gyro X: ");
+    Serial.print(mpu6050_data.Angle_Velocity_R);
+    Serial.print(", Y: ");
+    Serial.print(mpu6050_data.Angle_Velocity_P);
+    Serial.print(", Z: ");
+    Serial.println(mpu6050_data.Angle_Velocity_Y);
+    Serial.print("PID Output: ");
+    Serial.println(pidOutput);
+  }*/
   
 
   // Execute movement commands every COMMAND_INTERVAL ms
@@ -268,14 +295,14 @@ void loop()
   //   commandIndex++;
   // }
 
-  if (millis() > printTimer) {
+  /*if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
     Serial.print(" Filtered Angle: ");
     Serial.println(filteredAngle);
     Serial.print(" Filtered Speed: ");
     Serial.println(filteredSpeed);
-    // Serial.print(" Target Angle: ");
-    // Serial.println(setpoint);
+    Serial.print(" Target Angle: ");
+    Serial.println(setpoint);
     // Serial.print(" Target Speed: ");
     // Serial.println(speedSetpoint);
     Serial.print(" Target angle: ");
@@ -286,7 +313,7 @@ void loop()
 
     Serial.print(" Output: ");
     Serial.println(balanceControlOutput);
-  }
+  }*/
     
 }
 
