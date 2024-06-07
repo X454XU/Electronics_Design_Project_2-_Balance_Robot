@@ -7,7 +7,6 @@
 #include <PIDController.h>
 #include <chrono> // For time functions
 
-
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
 #define STEPPER1_STEP_PIN 17  //Arduino D8
@@ -28,7 +27,7 @@ const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 double kp = 1000;
 double ki = 1;
 double kd = 15;
-double setpoint = 0; //0.0629; 
+double setpoint = 0; // 0.0629; 
 
 // PID tuning parameters for speed control
 double speedKp = 100;
@@ -42,13 +41,12 @@ double speedControlOutput;
 double balanceControlOutput;
 double desiredTiltAngle;
 
-
 //Global objects
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
 
-step step1(STEPPER_INTERVAL_US,STEPPER1_STEP_PIN,STEPPER1_DIR_PIN );
-step step2(STEPPER_INTERVAL_US,STEPPER2_STEP_PIN,STEPPER2_DIR_PIN );
+step step1(STEPPER_INTERVAL_US, STEPPER1_STEP_PIN, STEPPER1_DIR_PIN);
+step step2(STEPPER_INTERVAL_US, STEPPER2_STEP_PIN, STEPPER2_DIR_PIN);
 
 MPU6050Handler mpuHandler;
 MPU6050_DATA mpu6050_data;
@@ -83,7 +81,7 @@ const double alphaSpeed = 0.1; // Smoothing factor for speed
 double smoothedSpeed = 0.0;
 
 float pitch = 0.0;
-
+bool motorsEnabled = true; // Variable to track motor state
 
 // Function prototypes
 void moveForward(double speed);
@@ -91,6 +89,8 @@ void moveBackward(double speed);
 void turnLeft(double speed);
 void turnRight(double speed);
 void stop();
+void checkAndToggleMotors();
+
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -102,17 +102,16 @@ bool timerHandler(void * timerNo)
   step2.runStepper();
 
   //Indicate that the ISR is running
-  digitalWrite(TOGGLE_PIN,toggle);  
+  digitalWrite(TOGGLE_PIN, toggle);
   toggle = !toggle;
-	return true;
+  return true;
 }
 
 void setup()
 {
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
-  pinMode(TOGGLE_PIN,OUTPUT);
+  pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
-
 
   // Try to initialize Accelerometer/Gyroscope
   if (!mpu.begin()) {
@@ -130,7 +129,7 @@ void setup()
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
     Serial.println("Failed to start stepper interrupt");
     while (1) delay(10);
-    }
+  }
   Serial.println("Initialised Interrupt for Stepper");
 
   //Set motor acceleration values
@@ -138,9 +137,8 @@ void setup()
   step2.setAccelerationRad(0);
 
   //Enable the stepper motor drivers
-  pinMode(STEPPER_EN,OUTPUT);
+  pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
-
 
   double yawSum = 0;
   double pitchSum = 0;
@@ -149,12 +147,10 @@ void setup()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    //yawSum += 
     pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
 
     delay(10);
   }
-  //yawCalibration = yawSum / 500.0;
   pitchCalibration = pitchSum / 500.0;
 
   Serial.print(pitchCalibration);
@@ -163,7 +159,6 @@ void setup()
 
   // Initialize command timer
   commandTimer = millis();
-
 }
 
 void loop()
@@ -171,8 +166,7 @@ void loop()
   //Static variables are initialised once and then the value is remembered betweeen subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
-  
-  
+
   //Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
     loopTimer += LOOP_INTERVAL;
@@ -181,173 +175,87 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-
-    // Calculate Tilt using accelerometer (simplified for small angles)
-    //double accelAngle = a.acceleration.z/9.67;
-    //double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-  
-    // Get the rate of change from the gyroscope
-    //double gyroRate = g.gyro.y - pitchCalibration; 
-
-    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - pitchCalibration; //atan2(a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) - pitchCalibration;
-    //float roll = atan2(a.acceleration.y, a.acceleration.z);
+    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - pitchCalibration;
 
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
-    //float gyroRollRate = g.gyro.z;  // Roll rate
-    //float gyroYawRate = g.gyro.x;   // Yaw rate
 
     // Apply complementary filter
     double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
     filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
     previousFilteredAngle = filteredAngle;
 
-    pidOutput = balancePid.compute(filteredAngle);
+    // Check and toggle motors based on tilt angle
+    checkAndToggleMotors();
 
-    /*double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
-    unsigned long currentMillis = millis();
+    if (motorsEnabled) {
+      pidOutput = balancePid.compute(filteredAngle);
 
-    // Calculate overall speed (rad/s) based on position change
-    double positionChange = currentPosition - previousPosition;
-    double timeChange = (currentMillis - previousTime) / 1000.0; // Convert to seconds
-    overallSpeed = positionChange / timeChange;
+      double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
+      unsigned long currentMicros = micros(); // Use micros() for better precision
 
-    // Update previous position and time
-    previousPosition = currentPosition;
-    previousTime = currentMillis;
-    */
+      // Calculate overall speed (rad/s) based on position change
+      double positionChange = currentPosition - previousPosition;
+      double timeChange = (currentMicros - previousMicros) / 1000000.0; // Convert to seconds
 
-    double currentPosition = (step1.getPositionRad() + step2.getPositionRad()) / 2.0;
-    unsigned long currentMicros = micros(); // Use micros() for better precision
-
-    // Calculate overall speed (rad/s) based on position change
-    double positionChange = currentPosition - previousPosition;
-    double timeChange = (currentMicros - previousMicros) / 1000000.0; // Convert to seconds
-
-    // Ensure timeChange is not zero to avoid division by zero
-    if (timeChange > 0.001) { // Ensure a minimum time interval of 1ms to avoid large jumps
+      // Ensure timeChange is not zero to avoid division by zero
+      if (timeChange > 0.001) { // Ensure a minimum time interval of 1ms to avoid large jumps
         double instantSpeed = positionChange / timeChange;
         // Apply exponential moving average to smooth the speed readings
         smoothedSpeed = (alphaSpeed * instantSpeed) + ((1 - alphaSpeed) * smoothedSpeed);
         overallSpeed = smoothedSpeed;
-    } else {
+      } else {
         overallSpeed = smoothedSpeed; // Keep the previous smoothed speed if timeChange is too small
-    }
+      }
 
-    // Update previous position and time
-    previousPosition = currentPosition;
-    previousMicros = currentMicros;
-    
-    // Outer loop: Speed control
-    speedPid.setSetpoint(speedSetpoint);
-    speedControlOutput = speedPid.compute(overallSpeed);
+      // Update previous position and time
+      previousPosition = currentPosition;
+      previousMicros = currentMicros;
 
-    desiredTiltAngle = speedControlOutput;
+      // Outer loop: Speed control
+      speedPid.setSetpoint(speedSetpoint);
+      speedControlOutput = speedPid.compute(overallSpeed);
 
-    // Inner loop: Balance control with speed control output as setpoint
-    balancePid.setSetpoint(setpoint);
-    balanceControlOutput = balancePid.compute(filteredAngle);
+      desiredTiltAngle = speedControlOutput;
 
-    step1.setAccelerationRad(-balanceControlOutput);
-    step2.setAccelerationRad(balanceControlOutput);
+      // Inner loop: Balance control with speed control output as setpoint
+      balancePid.setSetpoint(setpoint);
+      balanceControlOutput = balancePid.compute(filteredAngle);
 
+      step1.setAccelerationRad(-balanceControlOutput);
+      step2.setAccelerationRad(balanceControlOutput);
 
-    if (balanceControlOutput > 0){
-      step1.setTargetSpeedRad(-15);
-      step2.setTargetSpeedRad(15);
+      if (balanceControlOutput > 0) {
+        step1.setTargetSpeedRad(-15);
+        step2.setTargetSpeedRad(15);
+      } else {
+        step1.setTargetSpeedRad(15);
+        step2.setTargetSpeedRad(-15);
+      }
     } else {
-      step1.setTargetSpeedRad(15);
-      step2.setTargetSpeedRad(-15);
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
     }
-
-    // self-generated pulse
-
-    // if (!impulseApplied && millis() > 10000) { //apply impulse after 10000 milliseconds
-    //   Serial.println("Applying impulse!");
-    //   step1.setTargetSpeedRad(100);
-    //   step2.setTargetSpeedRad(-100);
-    //   delay(250);  // Duration of the impulse
-    //   step1.setTargetSpeedRad(0);
-    //   step2.setTargetSpeedRad(0);
-    //   impulseApplied = true;
-    // }
-
   }
 
-  
   // Print updates every PRINT_INTERVAL ms
-  /*if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    mpuHandler.readData(mpu6050_data);
-    Serial.print("Acceleration X: ");
-    Serial.print(mpu6050_data.Acc_X);
-    Serial.print(", Y: ");
-    Serial.print(mpu6050_data.Acc_Y);
-    Serial.print(", Z: ");
-    Serial.println(mpu6050_data.Acc_Z);
-    Serial.print("Gyro X: ");
-    Serial.print(mpu6050_data.Angle_Velocity_R);
-    Serial.print(", Y: ");
-    Serial.print(mpu6050_data.Angle_Velocity_P);
-    Serial.print(", Z: ");
-    Serial.println(mpu6050_data.Angle_Velocity_Y);
-    Serial.print("PID Output: ");
-    Serial.println(pidOutput);
-  }*/
-  
-
-  // Execute movement commands every COMMAND_INTERVAL ms
-  // if (millis() - commandTimer > COMMAND_INTERVAL) {
-  //   commandTimer = millis();
-
-  //   switch (commandIndex) {
-  //     case 0:
-  //       Serial.println("Moving forward");
-  //       moveForward(0.1);  
-  //       break;
-  //     case 1:
-  //       Serial.println("Moving backward");
-  //       moveBackward(0.1);  
-  //       break;
-  //     // case 2:
-  //     //   Serial.println("Turning left");
-  //     //   turnLeft(5.0);  
-  //     //   break;
-  //     // case 3:
-  //     //   Serial.println("Turning right");
-  //     //   turnRight(5.0); 
-  //     //   break;
-  //     default:
-  //       stop(); 
-  //       commandIndex = -1;  // Reset index
-  //       break;
-  //   }
-  //   commandIndex++;
-  // }
-
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    Serial.print(" Filtered Angle: ");
+    Serial.print("Filtered Angle: ");
     Serial.println(filteredAngle);
-    Serial.print(" Speed: ");
+    Serial.print("Speed: ");
     Serial.println(overallSpeed);
-    Serial.print(" Target Angle inner loop: ");
+    Serial.print("Target Angle inner loop: ");
     Serial.println(setpoint);
-    // Serial.print(" Target Speed: ");
-    // Serial.println(speedSetpoint);
-    Serial.print(" Target angle outer loop: ");
+    Serial.print("Target angle outer loop: ");
     Serial.println(desiredTiltAngle);
-
-    Serial.print(" Speed Output: ");
+    Serial.print("Speed Output: ");
     Serial.println(speedControlOutput);
-
-    Serial.print(" pitch: ");
+    Serial.print("Pitch: ");
     Serial.println(pitch);
-    
-    Serial.print(" Output: ");
+    Serial.print("Output: ");
     Serial.println(balanceControlOutput);
   }
-    
 }
 
 // Functions to move forward, backward, and turn
@@ -373,5 +281,20 @@ void turnRight(double speed) {
   step2.setTargetSpeedRad(-speed);
 }
 
-
-
+void checkAndToggleMotors() {
+  if (abs(filteredAngle) > 0.7) {
+    if (motorsEnabled) {
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
+      step1.setAccelerationRad(0);
+      step2.setAccelerationRad(0);
+      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
+      motorsEnabled = false;
+    }
+  } else {
+    if (!motorsEnabled) {
+      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
+      motorsEnabled = true;
+    }
+  }
+}
