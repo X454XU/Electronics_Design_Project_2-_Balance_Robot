@@ -61,21 +61,12 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-double turningSpeed = 0;
-
-double previousPosition = 0.0;
-unsigned long previousMicros = 0;
-
 bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
 
 double pitchCalibration = 0.0;
 double yawCalibration = 0.0;
-
-double overallSpeed = 0.0;
-const double alphaSpeed = 0.5; // Smoothing factor for speed
-double smoothedSpeed = 0.0;
 
 float pitch = 0.0;
 
@@ -131,8 +122,8 @@ bool timerHandler(void * timerNo)
 
 // Butterworth filter variables
 const int order = 2;
-const float cutoffFrequency = 5.0; // Hz, example cutoff frequency
-const float samplingFrequency = 100.0; // Hz, adjust based on your actual sampling rate
+const float cutoffFrequency = 5.0; // Hz, cutoff frequency
+const float samplingFrequency = 100.0; // Hz
 float a[order + 1];
 float b[order + 1];
 float x1Butter[order + 1] = {0}; // Renamed to avoid conflict
@@ -321,7 +312,7 @@ void loop()
       desiredTiltAngle = speedControlOutput;
 
       // Inner loop: Balance control with speed control output as setpoint
-      balancePid.setSetpoint(setpoint);
+      balancePid.setSetpoint(desiredTiltAngle);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
       // Apply dead-band
