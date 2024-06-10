@@ -105,13 +105,20 @@ public:
         return static_cast<float>(speed) * STEP_ANGLE / SPEED_SCALE;
     }
 
-    float setAcceleration() {
+    float getAcceleration() {
         return accel;
     }
     
-    //Get current speed in rad/s. Do not call from ISR
-    float setAccelerationRad() {
+    float getAccelerationRad() {
         return static_cast<float>(accel) * STEP_ANGLE;
+    }
+
+    int getTargetSpeed() {
+        return tSpeed;
+    }
+    
+    float getTargetSpeedRad() {
+        return tSpeed * STEP_ANGLE / SPEED_SCALE;
     }
 
     

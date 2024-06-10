@@ -12,6 +12,14 @@ TaskHandle_t Balance;
 TaskHandle_t Movement;
 //flag for switching tasks
 bool input = false;
+//flags for movement
+bool m_w = false;
+bool m_a = false;
+bool m_s = false;
+bool m_d = false;
+//calculating angle for moving forwards/backwards
+bool inRange;
+float edge = 0.05;
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -34,6 +42,7 @@ double kd = 15;
 double setpoint = 0.0629; // Adjust
 
 double pidOutput;
+float accelAngle = 0.0;
 
 //Global objects
 ESP32Timer ITimer(3);
@@ -70,12 +79,21 @@ bool timerHandler(void * timerNo)
   return true;
 }
 
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
+}
+
+
 void BalanceCode(void * parameter){
   for(;;) {
     //Static variables are initialised once and then the value is remembered betweeen subsequent calls to this function
     static unsigned long printTimer = 0;  //time of the next print
     static unsigned long loopTimer = 0;   //time of the next control update
-    static float accelAngle = 0.0;        // Current tilt angle from accelerometer
+    //static float accelAngle = 0.0;        // Current tilt angle from accelerometer
     static float gyroRate = 0.0;          // Current rate of change from gyroscope
     
     //Run the control loop every LOOP_INTERVAL ms
@@ -100,31 +118,67 @@ void BalanceCode(void * parameter){
 
       pidOutput = pid.compute(filteredAngle);
 
-      if (!input){
-        //Set target motor speed proportional to tilt angle
-        //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
-        step1.setAccelerationRad(-pidOutput);
-        step2.setAccelerationRad(pidOutput);
 
-        if (pidOutput > 0){
-          step1.setTargetSpeedRad(-20);
-          step2.setTargetSpeedRad(20);
-        }
-        else{
-          step1.setTargetSpeedRad(20);
-          step2.setTargetSpeedRad(-20);
-        }
+      /*Serial.print("a1: ");
+      Serial.print(step1.getAccelerationRad());
+      Serial.print(", a2: ");
+      Serial.print(step2.getAccelerationRad());
+      Serial.print(", ts1: ");
+      Serial.print(step1.getTargetSpeedRad());
+      Serial.print(", ts2: ");
+      Serial.print(step2.getTargetSpeedRad());
+      Serial.println("");
+      delay(30);
+      
+      Serial.print("s1: ");
+      Serial.print(step1.getSpeedRad());
+      Serial.print(", s2: ");
+      Serial.print(step2.getSpeedRad());
+      Serial.println("");
+      */
+      if (!input){
+        if (m_w || m_s){
+          //moving forwards or backwards
+          if (m_w){
+            inRange = accelAngle > setpoint || accelAngle < setpoint - edge;
+          } else if (m_s) {
+            inRange = accelAngle < setpoint || accelAngle > setpoint + edge;
+          }
+          //block balancing for some angles in the direction of movement
+          if (inRange){
+            step1.setAccelerationRad(-pidOutput);
+            step2.setAccelerationRad(pidOutput);
+
+            if (pidOutput > 0){
+              step1.setTargetSpeedRad(-20);
+              step2.setTargetSpeedRad(20);
+            }
+            else{
+              step1.setTargetSpeedRad(20);
+              step2.setTargetSpeedRad(-20);
+            }
+          } else {
+            resetSteppers();
+          }
+        } else {
+          //Set target motor speed proportional to tilt angle
+          //Note: this is for demonstrating accelerometer and motors - it won't work as a balance controller
+          step1.setAccelerationRad(-pidOutput);
+          step2.setAccelerationRad(pidOutput);
+
+          if (pidOutput > 0){
+            step1.setTargetSpeedRad(-20);
+            step2.setTargetSpeedRad(20);
+          }
+          else{
+            step1.setTargetSpeedRad(20);
+            step2.setTargetSpeedRad(-20);
+          }
+        }     
       }
+         
     }
   }
-}
-
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
-  step1.setAccelerationRad(0);
-  step2.setAccelerationRad(0);
-  delay(10);  // Allow some time for the steppers to stop
 }
 
 void MovementCode(void * parameter) {
@@ -141,11 +195,11 @@ void MovementCode(void * parameter) {
       float accel2 = 0;
       float tspeed1 = 0;
       float tspeed2 = 0;
+      //delay
+      int d = 50;
+      
 
-      
-      
-      // turning right and turning left may be reversed,
-      // hold wasd keys to keep increasing the turning or tilting angle
+      // tap "a" or "d" to start turning left or right (repeated tap increases turning speed)
       // moving forward and backward need to be combined with PID to make sure the
       // forward distance is not neutralized by the backward balancing deviation 
       if (incomingByte == 'w'){
@@ -154,37 +208,63 @@ void MovementCode(void * parameter) {
         accel2 = -80;
         tspeed1 = 20;
         tspeed2 = -20;
+        d = 100;
+        if (m_s){
+          m_s = false;
+        } else {
+          m_w = true;
+        }
       } else if (incomingByte == 's'){
         Serial.println("impulse backwards");
         accel1 = -80;
         accel2 = 80;
         tspeed1 = -20;
         tspeed2 = 20;
+        d = 100;
+        if (m_w){
+          m_w = false;
+        } else {
+          m_s = true;
+        }
       } else if (incomingByte == 'a'){
         Serial.println("impulse left");
         accel1 = -40;
         accel2 = -40;
         tspeed1 = -20;
         tspeed2 = -20;
+        if (m_d){
+          m_d = false;
+        } else {
+          m_a = true;
+        }
+        m_w = false;
+        m_s = false;
       } else if (incomingByte == 'd'){
         Serial.println("impulse right");
         accel1 = 40;
         accel2 = 40;
         tspeed1 = 20;
         tspeed2 = 20;
+        if (m_a){
+          m_a = false;
+        } else {
+          m_d = true;
+        }
+        m_w = false;
+        m_s = false;
       }
 
       //the actual input sequence
-      if (incomingByte == 'w' || incomingByte == 'a' || incomingByte == 's' || incomingByte == 'd'){
+      if (incomingByte == 'w' || incomingByte == 's' || incomingByte == 'a' || incomingByte == 'd'){
         input = true; // Indicate that we are handling input
         step1.setAccelerationRad(accel1);
         step2.setAccelerationRad(accel2);
         step1.setTargetSpeedRad(tspeed1);
         step2.setTargetSpeedRad(tspeed2);
-        delay(50);  // Duration of the impulse
+        delay(d);  // Duration of the impulse
         resetSteppers(); // Stop any ongoing movements before applying new command
         input = false;
-      } 
+      }
     }
   }
 }
@@ -221,6 +301,7 @@ void setup()
   //Enable the stepper motor drivers
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
+  
 
   xTaskCreate(
     BalanceCode,    // Function that should be called
