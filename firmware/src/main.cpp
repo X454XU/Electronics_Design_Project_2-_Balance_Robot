@@ -25,9 +25,9 @@ const int  STEPPER_INTERVAL_US = 20;
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 //PID tuning parameters
-double kp = 1070;
-double ki = 1.4;
-double kd = 20;
+double kp = 1000; // 640
+double ki = 15; //15
+double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
@@ -126,10 +126,10 @@ const float cutoffFrequency = 5.0; // Hz, cutoff frequency
 const float samplingFrequency = 100.0; // Hz
 float a[order + 1];
 float b[order + 1];
-float x1Butter[order + 1] = {0}; // Renamed to avoid conflict
-float y1Butter[order + 1] = {0}; // Renamed to avoid conflict
-float x2Butter[order + 1] = {0}; // Renamed to avoid conflict
-float y2Butter[order + 1] = {0}; // Renamed to avoid conflict
+float x1Butter[order + 1] = {0};
+float y1Butter[order + 1] = {0};
+float x2Butter[order + 1] = {0};
+float y2Butter[order + 1] = {0};
 
 void calculateButterworthCoefficients() {
   double pi = 3.141592653589793;
@@ -223,8 +223,6 @@ void setup()
 
   calculateButterworthCoefficients();
 
-  previousMicros = micros();
-
   // Initialize command timer
   commandTimer = millis();
 }
@@ -257,29 +255,6 @@ void loop()
     checkAndToggleMotors();
 
     if (motorsEnabled) {
-      // speed = (step1.getSpeed() + step2.getSpeed()) / 2.0;
-      // currentPosition = (step1.getPosition() + step2.getPosition()) / 2.0;
-      // unsigned long currentMicros = micros(); // Use micros() for better precision
-
-      // // Calculate overall speed (rad/s) based on position change
-      // double positionChange = currentPosition - previousPosition;
-      // double timeChange = (currentMicros - previousMicros) / 1000000.0; // Convert to seconds
-
-      // // Ensure timeChange is not zero to avoid division by zero
-      // if (timeChange > 0.001) { // Ensure a minimum time interval of 1ms to avoid large jumps
-      //   double instantSpeed = positionChange / timeChange;
-      //   // Apply exponential moving average to smooth the speed readings
-      //   smoothedSpeed = (alphaSpeed * instantSpeed) + ((1 - alphaSpeed) * smoothedSpeed);
-      //   overallSpeed = smoothedSpeed;
-      // } else {
-      //   overallSpeed = smoothedSpeed; // Keep the previous smoothed speed if timeChange is too small
-      // }
-
-      // // Update previous position and time
-      // previousPosition = currentPosition;
-      // previousMicros = currentMicros;
-
-      // Retrieve the current speed of both motors in steps per second
       // Get raw speed readings
       float rawSpeed1 = step1.getSpeed() / 2000.0;
       float rawSpeed2 = step2.getSpeed() / 2000.0;
@@ -307,12 +282,12 @@ void loop()
 
       // Outer loop: Speed control
       speedPid.setSetpoint(speedSetpoint);
-      speedControlOutput = speedPid.compute(overallSpeed);
+      speedControlOutput = speedPid.compute(speedCmPerSecond);
 
       desiredTiltAngle = speedControlOutput;
 
       // Inner loop: Balance control with speed control output as setpoint
-      balancePid.setSetpoint(desiredTiltAngle);
+      balancePid.setSetpoint(setpoint);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
       // Apply dead-band
