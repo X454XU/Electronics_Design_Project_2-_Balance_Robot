@@ -1,4 +1,5 @@
 from flask import Flask, request, Response, render_template
+from flask_socketio import SocketIO, emit
 import cv2
 import numpy as np
 import os
@@ -28,6 +29,12 @@ def video_feed():
 @app.route('/')
 def home():
     return render_template('index.html')
+
+@socketio.on('keypress')
+def handle_keypress(data):
+    key = data.get('key')
+    if key in ['w', 'a', 's', 'd']:
+        emit('key_update', {'key': key}, broadcast=True)
 
 if __name__ == '__main__':
     app.run(debug=True) #host='127.0.0.1', port=5000
