@@ -228,9 +228,32 @@ Incrementer pitchIncrementer;
 ////////////////////////////// Main Functionality /////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
+void setup()
+{
+  Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
+  pinMode(TOGGLE_PIN, OUTPUT);
+  mpuHandler.init();
+
+  // Try to initialize Accelerometer/Gyroscope
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050 Found!");
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+
+  //Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
+  if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
+    Serial.println("Failed to start stepper interrupt");
+    while (1) delay(10);
+  }
+  Serial.println("Initialised Interrupt for Stepper");
+
+  //Set motor acceleration values
   step1.setAccelerationRad(0);
   step2.setAccelerationRad(0);
 
@@ -262,6 +285,7 @@ void resetSteppers() {
   commandTimer = millis();
 }
 
+
 void loop()
 {
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
@@ -281,52 +305,52 @@ void loop()
   static unsigned long rightKeyReleaseTimer = 0;
   const unsigned long keyReleaseDelay = 10; // Delay to detect key release
 
-    //Run the control loop every LOOP_INTERVAL ms
-    if (millis() > loopTimer) {
-      loopTimer += LOOP_INTERVAL;
+  //Run the control loop every LOOP_INTERVAL ms
+  if (millis() > loopTimer) {
+    loopTimer += LOOP_INTERVAL;
 
-      // Fetch data from MPU6050
-      sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
+    // Fetch data from MPU6050
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
 
     pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
     //pitch = pitchIncrementer.next_value();
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
 
-      // Apply complementary filter
-      double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
-      filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
-      previousFilteredAngle = filteredAngle;
+    // Apply complementary filter
+    double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
+    filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
+    previousFilteredAngle = filteredAngle;
 
-      // Check and toggle motors based on tilt angle
-      checkAndToggleMotors();
+    // Check and toggle motors based on tilt angle
+    checkAndToggleMotors();
 
-      if (motorsEnabled) {
-        // Get raw speed readings
-        float rawSpeed1 = step1.getSpeed() / 2000.0;
-        float rawSpeed2 = step2.getSpeed() / 2000.0;
+    if (motorsEnabled) {
+      // Get raw speed readings
+      float rawSpeed1 = step1.getSpeed() / 2000.0;
+      float rawSpeed2 = step2.getSpeed() / 2000.0;
 
-        // Apply exponential moving average
-        emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
-        emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
+      // Apply exponential moving average
+      emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
+      emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
 
-        // Apply Butterworth low-pass filter
-        float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
-        float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
+      // Apply Butterworth low-pass filter
+      float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
+      float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
 
-        // Average the speeds of the two motors 
-        float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
+      // Average the speeds of the two motors 
+      float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
 
-        // Convert speed from steps per second to cm per second
-        float distancePerStep = wheelCircumference / stepsPerRevolution;
-        speedCmPerSecond = averageSpeedSteps * distancePerStep;
+      // Convert speed from steps per second to cm per second
+      float distancePerStep = wheelCircumference / stepsPerRevolution;
+      speedCmPerSecond = averageSpeedSteps * distancePerStep;
 
-        speedCmPerSecond1 = butterSpeed1 * distancePerStep;
-        speedCmPerSecond2 = butterSpeed2 * distancePerStep;
+      speedCmPerSecond1 = butterSpeed1 * distancePerStep;
+      speedCmPerSecond2 = butterSpeed2 * distancePerStep;
 
-        // Calculate the rotational speed in radians per second
-        rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
+      // Calculate the rotational speed in radians per second
+      rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
 
       // Outer loop: Speed control
       speedControlOutput = speedPid.compute(speedCmPerSecond);
@@ -337,18 +361,30 @@ void loop()
       balancePid.setSetpoint(TargetTiltAngle);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
-        // Apply dead-band
-        if (abs(balanceControlOutput) < deadBand) {
-          balanceControlOutput = 0;
-        }
-        /*if(setpoint == 0){
-          if(balanceControlOutput < 0){setpoint += 0.0015;
-          Serial.print("hi");}
-          if(balanceControlOutput > 0){setpoint -= 0.0015;}
-        }*/
+      // Apply dead-band
+      if (abs(balanceControlOutput) < deadBand) {
+        balanceControlOutput = 0;
+      }
 
+      step1.setAccelerationRad(-balanceControlOutput);
+      step2.setAccelerationRad(balanceControlOutput);
+
+      if (balanceControlOutput > 0) {
+        step1.setTargetSpeedRad(-20);
+        step2.setTargetSpeedRad(20);
       } 
-    }
+      if(balanceControlOutput < 0) {
+        step1.setTargetSpeedRad(20);
+        step2.setTargetSpeedRad(-20);
+      }
+      /*if(setpoint == 0){
+        if(balanceControlOutput < 0){setpoint += 0.0015;
+        Serial.print("hi");}
+        if(balanceControlOutput > 0){setpoint -= 0.0015;}
+      }*/
+
+    } 
+  }
 
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
