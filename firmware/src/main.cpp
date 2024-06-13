@@ -31,16 +31,16 @@ double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 100;
-double speedKi = 0;
-double speedKd = 0;
+double speedKp = 1;
+double speedKi = 0.1;
+double speedKd = 0.2;//1000;
 double speedSetpoint = 0; // Desired speed
 
 double pidOutput;
 double speedPidOutput;
 double speedControlOutput;
 double balanceControlOutput;
-double desiredTiltAngle;
+double TargetTiltAngle;
 
 //Global objects
 ESP32Timer ITimer(3);
@@ -61,12 +61,12 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-bool impulseApplied = false;
+// bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
 
-double pitchCalibration = 0.0;
-double yawCalibration = 0.0;
+// double pitchCalibration = 0.0;
+// double yawCalibration = 0.0;
 
 float pitch = 0.0;
 
@@ -88,8 +88,11 @@ float rotationalSpeedRadPerSecond;
 float speedCmPerSecond1;
 float speedCmPerSecond2;
 
+double previousSpeedControlOutput = 0;
+double prevAccel = 0;
+
 // Maybe needs further tuning
-const double deadBand = 4; // Dead-band threshold for ignoring small angle changes
+const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
 
 
 // double currentPosition = 0.0;
@@ -98,10 +101,11 @@ const double deadBand = 4; // Dead-band threshold for ignoring small angle chang
 // Function prototypes
 void moveForward(double speed);
 void moveBackward(double speed);
-void turnLeft(double speed);
-void turnRight(double speed);
+void rotateLeft(double speed);
+void rotateRight(double speed);
 void stop();
 void checkAndToggleMotors();
+void resetSteppers();
 
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
@@ -119,6 +123,9 @@ bool timerHandler(void * timerNo)
   return true;
 }
 
+///////////////////////////////////////////////////////////////////////
+////////////////////////////// Filtering //////////////////////////////
+///////////////////////////////////////////////////////////////////////
 
 // Butterworth filter variables
 const int order = 2;
@@ -169,6 +176,44 @@ float butterworthFilter(float *x, float *y, float input) {
   return y[0];
 }
 
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////// Testing /////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+
+class Incrementer {
+public:
+    Incrementer(float start=-0.01, float end=0.01, float step=0.0002, int incrementInterval=50)
+        : start(start), current(start), end(end), step(step), incrementInterval(incrementInterval), counter(0), direction(1) {}
+
+    float next_value() {
+        float value = current;
+        counter++;
+        if (counter >= incrementInterval) {
+            counter = 0;
+            current += step * direction;
+            if (current > end || current < start) {
+                direction *= -1; // Reverse direction
+                current += step * direction; // Correct overshoot
+            }
+        }
+        return value;
+    }
+
+private:
+    float start;
+    float current;
+    float end;
+    float step;
+    int incrementInterval;
+    int counter;
+    int direction;
+};
+
+Incrementer pitchIncrementer;
+
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////// Main Functionality /////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
 void setup()
 {
@@ -203,20 +248,20 @@ void setup()
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-  double yawSum = 0;
-  double pitchSum = 0;
+  // double yawSum = 0;
+  // double pitchSum = 0;
 
-  for (int i = 0; i < 500; ++i) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
+  // for (int i = 0; i < 500; ++i) {
+  //   sensors_event_t a, g, temp;
+  //   mpu.getEvent(&a, &g, &temp);
 
-    pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
+  //   pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
 
-    delay(10);
-  }
-  pitchCalibration = pitchSum / 500.0;
+  //   delay(10);
+  // }
+  // pitchCalibration = pitchSum / 500.0;
 
-  Serial.print(pitchCalibration);
+  // Serial.print(pitchCalibration);
 
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
@@ -233,6 +278,19 @@ void loop()
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
 
+  // Flags to track key states
+  static bool moveForwardFlag = false;
+  static bool moveBackwardFlag = false;
+  static bool rotateLeftFlag = false;
+  static bool rotateRightFlag = false;
+
+   // Timers for key release detection
+  static unsigned long forwardKeyReleaseTimer = 0;
+  static unsigned long backwardKeyReleaseTimer = 0;
+  static unsigned long leftKeyReleaseTimer = 0;
+  static unsigned long rightKeyReleaseTimer = 0;
+  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
+
   //Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
     loopTimer += LOOP_INTERVAL;
@@ -241,8 +299,8 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - pitchCalibration;
-
+    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
+    //pitch = pitchIncrementer.next_value();
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
 
@@ -281,13 +339,12 @@ void loop()
       rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
 
       // Outer loop: Speed control
-      speedPid.setSetpoint(speedSetpoint);
       speedControlOutput = speedPid.compute(speedCmPerSecond);
 
-      desiredTiltAngle = speedControlOutput;
+      TargetTiltAngle = speedControlOutput * 0.001;
 
       // Inner loop: Balance control with speed control output as setpoint
-      balancePid.setSetpoint(setpoint);
+      balancePid.setSetpoint(TargetTiltAngle);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
       // Apply dead-band
@@ -318,27 +375,96 @@ void loop()
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    // Serial.print("Filtered Angle: ");
-    // Serial.println(filteredAngle);
-    Serial.print("rotational speed: ");
-    Serial.println(rotationalSpeedRadPerSecond);
-    Serial.print("Speed: ");
-    Serial.println(speedCmPerSecond);
-    Serial.print("Speed wheel 1: ");
-    Serial.println(speedCmPerSecond1);
-    Serial.print("Speed wheel 2: ");
-    Serial.println(speedCmPerSecond2);
-    // Serial.print("Target Angle inner loop: ");
-    // Serial.println(setpoint);
-    // Serial.print("Target angle outer loop: ");
-    // Serial.println(desiredTiltAngle);
-    // Serial.print("Speed Output: ");
-    // Serial.println(speedControlOutput);
-    // Serial.print("Pitch: ");
-    // Serial.println(pitch);
     // Serial.print("Output: ");
-    // Serial.println(balanceControlOutput);
+    // Serial.println(balanceControlOutput, 6);
   }
+
+  if (Serial.available() > 0) {
+    char command = Serial.read();
+    unsigned long currentTime = millis();
+
+    switch (command) {
+      case 'w':
+        moveForwardFlag = true;
+        forwardKeyReleaseTimer = currentTime;
+        break;
+      case 's':
+        moveBackwardFlag = true;
+        backwardKeyReleaseTimer = currentTime;
+        break;
+      case 'a':
+        rotateLeftFlag = true;
+        leftKeyReleaseTimer = currentTime;
+        break;
+      case 'd':
+        rotateRightFlag = true;
+        rightKeyReleaseTimer = currentTime;
+        break;
+      case 'x':
+        moveForwardFlag = false;
+        moveBackwardFlag = false;
+        rotateLeftFlag = false;
+        rotateRightFlag = false;
+        stop();
+        break;
+      default:
+        moveForwardFlag = false;
+        moveBackwardFlag = false;
+        rotateLeftFlag = false;
+        rotateRightFlag = false;
+        stop();
+        break;
+    }
+  }
+
+  // Check if the key release delay has passed
+  if (millis() - forwardKeyReleaseTimer > keyReleaseDelay) {
+    moveForwardFlag = false;
+    //stop();
+  }
+  if (millis() - backwardKeyReleaseTimer > keyReleaseDelay) {
+    moveBackwardFlag = false;
+    //stop();
+  }
+  if (millis() - leftKeyReleaseTimer > keyReleaseDelay) {
+    rotateLeftFlag = false;
+    //stop();
+  }
+  if (millis() - rightKeyReleaseTimer > keyReleaseDelay) {
+    rotateRightFlag = false;
+    //stop();
+  }
+
+  // Execute movement based on flags
+  if (moveForwardFlag) {
+    moveForward(30);
+    Serial.print("forwards");
+  }
+  if (moveBackwardFlag) {
+    moveBackward(30);
+    Serial.print("back");
+  }
+  if (rotateLeftFlag) {
+    rotateLeft(5);
+    Serial.print("left");
+  }
+  if (rotateRightFlag) {
+    rotateRight(5);
+    Serial.print("right");
+  }
+}
+
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Useful Functions ////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
 }
 
 // Functions to move forward, backward, and turn
@@ -354,14 +480,14 @@ void moveBackward(double speed) {
   speedPid.setSetpoint(-speed);
 }
 
-void turnLeft(double speed) {
+void rotateLeft(double speed) {
   step1.setTargetSpeedRad(-speed);
-  step2.setTargetSpeedRad(speed);
+  step2.setTargetSpeedRad(-speed);
 }
 
-void turnRight(double speed) {
+void rotateRight(double speed) {
   step1.setTargetSpeedRad(speed);
-  step2.setTargetSpeedRad(-speed);
+  step2.setTargetSpeedRad(speed);
 }
 
 void checkAndToggleMotors() {
