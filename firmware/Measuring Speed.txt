@@ -1,0 +1,33 @@
+Measuring Speed
+
+Diameter of wheels: 6.6 cm
+Wheel circumference: 20.736 cm
+Steps per revolution: 200 steps, with 16 microsteps
+Distance per step: 0.00648 cm 
+Distance between the centers of the two wheels: 11.9 cm
+
+Relationship between tilt and speed:
+
+Tilt = 0.1
+Jerk = 0.15
+
+Tilt = 0.02
+Jerk = 0.3
+
+Tilt = 0.04
+Jerk = 0.6
+
+Tilt = 1/15 * Jerk
+
+Tilt = 0.01 
+Acceleration = 10
+
+Tilt = 0.02
+Acceleration = 20
+
+
+calibration 1: 0.093061 stable
+calibration 2: 0.101147 stable
+calibration 3: 0.070915 stable
+
+avg = 
