@@ -105,6 +105,24 @@ public:
         return static_cast<float>(speed) * STEP_ANGLE / SPEED_SCALE;
     }
 
+    float getAcceleration() {
+        return accel;
+    }
+    
+    float getAccelerationRad() {
+        return static_cast<float>(accel) * STEP_ANGLE;
+    }
+
+    int getTargetSpeed() {
+        return tSpeed;
+    }
+    
+    float getTargetSpeedRad() {
+        return tSpeed * STEP_ANGLE / SPEED_SCALE;
+    }
+
+    
+
     private:
 
     int32_t stepTimer = 0;      //time since last step (μs)
