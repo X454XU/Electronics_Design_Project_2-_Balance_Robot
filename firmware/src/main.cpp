@@ -7,20 +7,6 @@
 #include <PIDController.h>
 #include <chrono> // For time functions
 
-// Task handles
-TaskHandle_t Balance;
-TaskHandle_t Movement;
-//flag for switching tasks
-bool input = false;
-//flags for movement
-bool m_w = false;
-bool m_a = false;
-bool m_s = false;
-bool m_d = false;
-//calculating angle for moving forwards/backwards
-bool inRange;
-float edge = 0.05;
-
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
 #define STEPPER1_STEP_PIN 17  //Arduino D8
