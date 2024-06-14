@@ -9,8 +9,8 @@
 #include <chrono> // For time functions
 
 // WiFi credentials
-const char* ssid = "fred";  // Replace with your WiFi SSID
-const char* password = "12345678";  // Replace with your WiFi password
+const char* ssid = "seb";  // Replace with your WiFi SSID
+const char* password = "1234567890";  // Replace with your WiFi password
 
 WiFiServer server(80);  // Create a server on port 80
 
@@ -105,6 +105,142 @@ void stop();
 void checkAndToggleMotors();
 void resetSteppers();
 void sendResponse(WiFiClient& client, const char* message);
+void handleRoot(WiFiClient& client);
+
+// HTML content
+const char* htmlContent = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance Robot UI</title>
+    <style>
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #f0f0f0;
+            padding: 15px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        .main {
+            flex: 1;
+            padding: 15px;
+        }
+        .Block, .camera-section, .movement, .control, .wasd-container, .map-output, .switch-container {
+            margin-bottom: 15px;
+        }
+        .camera-output, .battery-life, .distance-display, .function-ribbon, .speed-display, .control-parameters, .key-row, .map-output, .switch-container {
+            margin-bottom: 10px;
+        }
+        .key {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+            text-align: center;
+            border: 1px solid #ccc;
+            margin: 5px;
+            cursor: pointer;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="Block">
+                <div class="camera-section">
+                    <div class="camera-output">Camera Output</div>
+                    <div class="battery-life">Battery Life</div>
+                </div>
+            </div>
+            <div class="Block">
+                Movement
+                <div class="movement">
+                    <div class="distance-display">
+                        <h5>Distance Traversed</h5>
+                    </div>
+                    <div class="function-ribbon">
+                        <button>Function 1</button>
+                        <button>Function 2</button>
+                        <button>Function 3</button>
+                    </div>
+                    <div class="speed-display">
+                        <p>
+                            Speed: <span id="speed">0</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="Block">
+                Control Parameters
+                <div class="control">
+                    <div class="control-parameters">
+                        <p>P:</p>
+                        <p>I:</p>
+                        <p>D:</p>
+                    </div>
+                    <div class="control-parameters">
+                        <p><input type="number" id="number-input" placeholder="set P"></p>
+                        <p><input type="number" id="number-input" placeholder="set I"></p>
+                        <p><input type="number" id="number-input" placeholder="set D"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="wasd-container">
+                <div id="key-w" class="key">W</div>
+                <div class="key-row">
+                    <div id="key-a" class="key">A</div>
+                    <div id="key-s" class="key">S</div>
+                    <div id="key-d" class="key">D</div>
+                </div>
+                <script>
+                    document.addEventListener('keydown', function(event) {
+                        let command = '';
+                        switch(event.key) {
+                            case 'w':
+                                command = 'forward';
+                                break;
+                            case 'a':
+                                command = 'left';
+                                break;
+                            case 's':
+                                command = 'backward';
+                                break;
+                            case 'd':
+                                command = 'right';
+                                break;
+                        }
+                        if (command) {
+                            fetch('/' + command).then(response => {
+                                return response.text();
+                            }).then(data => {
+                                console.log(data);
+                            }).catch(error => {
+                                console.error('Error:', error);
+                            });
+                        }
+                    });
+                </script>
+            </div>
+        </div>
+        <div class="main">
+            <div class="map-output">2D Map of Mapped Area</div>
+            <div class="switch-container">
+                <label class="switch">
+                    <input type="checkbox" id="toggle-switch">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+)rawliteral";
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -170,45 +306,6 @@ float butterworthFilter(float *x, float *y, float input) {
   }
   return y[0];
 }
-
-////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////// Testing /////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////
-
-class Incrementer {
-public:
-    Incrementer(float start=-0.01, float end=0.01, float step=0.0002, int incrementInterval=50)
-        : start(start), current(start), end(end), step(step), incrementInterval(incrementInterval), counter(0), direction(1) {}
-
-    float next_value() {
-        float value = current;
-        counter++;
-        if (counter >= incrementInterval) {
-            counter = 0;
-            current += step * direction;
-            if (current > end || current < start) {
-                direction *= -1; // Reverse direction
-                current += step * direction; // Correct overshoot
-            }
-        }
-        return value;
-    }
-
-private:
-    float start;
-    float current;
-    float end;
-    float step;
-    int incrementInterval;
-    int counter;
-    int direction;
-};
-
-Incrementer pitchIncrementer;
-
-////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////// Main Functionality //////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////
 
 void setup()
 {
@@ -284,7 +381,7 @@ void loop()
   static unsigned long backwardKeyReleaseTimer = 0;
   static unsigned long leftKeyReleaseTimer = 0;
   static unsigned long rightKeyReleaseTimer = 0;
-  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
+  const unsigned long keyReleaseDelay = 5; // Delay to detect key release
 
   // Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
@@ -321,7 +418,7 @@ void loop()
       float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
 
       // Average the speeds of the two motors 
-      float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
+      float averageSpeedSteps = (butterSpeed1 + butterSpeed2) / 2.0;
 
       // Convert speed from steps per second to cm per second
       float distancePerStep = wheelCircumference / stepsPerRevolution;
@@ -331,7 +428,7 @@ void loop()
       speedCmPerSecond2 = butterSpeed2 * distancePerStep;
 
       // Calculate the rotational speed in radians per second
-      rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
+      rotationalSpeedRadPerSecond = (speedCmPerSecond1 - speedCmPerSecond2) / trackWidth;
 
       // Outer loop: Speed control
       speedControlOutput = speedPid.compute(speedCmPerSecond);
@@ -376,23 +473,7 @@ void loop()
         Serial.write(c);
         if (c == '\n') {
           if (currentLine.length() == 0) {
-            sendResponse(client, "ESP32 Robot Control");
-
-            client.println("Use the buttons below to control the robot:");
-            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
-            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
-            client.println("<button onclick=\"fetch('/left')\">Left</button>");
-            client.println("<button onclick=\"fetch('/right')\">Right</button>");
-            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
-            client.println("<p id=\"status\"></p>");
-            client.println("<script>");
-            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
-            client.println("document.querySelectorAll('button').forEach(button => {");
-            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
-            client.println("});");
-            client.println("</script>");
-            client.println("</body></html>");
-
+            handleRoot(client);
             client.println();
             break;
           } else {
@@ -453,24 +534,20 @@ void stop() {
 
 void moveForward(double speed) {
   speedPid.setSetpoint(speed);
-  Serial.println("Move Forward function executed");  // Debug statement
 }
 
 void moveBackward(double speed) {
   speedPid.setSetpoint(-speed);
-  Serial.println("Move Backward function executed");  // Debug statement
 }
 
 void rotateLeft(double speed) {
   step1.setTargetSpeedRad(-speed);
   step2.setTargetSpeedRad(-speed);
-  Serial.println("Rotate Left function executed");  // Debug statement
 }
 
 void rotateRight(double speed) {
   step1.setTargetSpeedRad(speed);
   step2.setTargetSpeedRad(speed);
-  Serial.println("Rotate Right function executed");  // Debug statement
 }
 
 void checkAndToggleMotors() {
@@ -501,4 +578,11 @@ void sendResponse(WiFiClient& client, const char* message) {
   client.print("</h1>");
   client.println("</body></html>");
   client.println();
+}
+
+void handleRoot(WiFiClient& client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+  client.println(htmlContent);
 }
