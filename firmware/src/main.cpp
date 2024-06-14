@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 #include <TimerInterrupt_Generic.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -6,6 +7,12 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
+
+// WiFi credentials
+const char* ssid = "fred";  // Replace with your WiFi SSID
+const char* password = "12345678";  // Replace with your WiFi password
+
+WiFiServer server(80);  // Create a server on port 80
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -19,11 +26,11 @@
 
 const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
-const int  STEPPER_INTERVAL_US = 20;
+const int STEPPER_INTERVAL_US = 20;
 
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
-//PID tuning parameters
+// PID tuning parameters
 double kp = 1000; // 640
 double ki = 15; //15
 double kd = 95; //95
@@ -41,7 +48,7 @@ double speedControlOutput;
 double balanceControlOutput;
 double TargetTiltAngle;
 
-//Global objects
+// Global objects
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
 
@@ -60,12 +67,8 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-// bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
-
-// double pitchCalibration = 0.0;
-// double yawCalibration = 0.0;
 
 float pitch = 0.0;
 
@@ -93,10 +96,6 @@ double prevAccel = 0;
 // Maybe needs further tuning
 const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
 
-
-// double currentPosition = 0.0;
-// double speed = 0.0; 
-
 // Function prototypes
 void moveForward(double speed);
 void moveBackward(double speed);
@@ -105,26 +104,23 @@ void rotateRight(double speed);
 void stop();
 void checkAndToggleMotors();
 void resetSteppers();
+void sendResponse(WiFiClient& client, const char* message);
 
-//Interrupt Service Routine for motor update
-//Note: ESP32 doesn't support floating point calculations in an ISR
+// Interrupt Service Routine for motor update
+// Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
 {
   static bool toggle = false;
 
-  //Update the stepper motors
+  // Update the stepper motors
   step1.runStepper();
   step2.runStepper();
 
-  //Indicate that the ISR is running
+  // Indicate that the ISR is running
   digitalWrite(TOGGLE_PIN, toggle);
   toggle = !toggle;
-	return true;
+  return true;
 }
-
-///////////////////////////////////////////////////////////////////////
-////////////////////////////// Filtering //////////////////////////////
-///////////////////////////////////////////////////////////////////////
 
 // Butterworth filter variables
 const int order = 2;
@@ -211,7 +207,7 @@ private:
 Incrementer pitchIncrementer;
 
 ////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////// Main Functionality /////////////////////////////////////////////
+////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
 void setup()
@@ -232,35 +228,35 @@ void setup()
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
 
-  //Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
+  // Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
     Serial.println("Failed to start stepper interrupt");
     while (1) delay(10);
   }
   Serial.println("Initialised Interrupt for Stepper");
 
-  //Set motor acceleration values
+  // Set motor acceleration values
   step1.setAccelerationRad(0);
   step2.setAccelerationRad(0);
 
-  //Enable the stepper motor drivers
+  // Enable the stepper motor drivers
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-  // double yawSum = 0;
-  // double pitchSum = 0;
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected!");
 
-  // for (int i = 0; i < 500; ++i) {
-  //   sensors_event_t a, g, temp;
-  //   mpu.getEvent(&a, &g, &temp);
-
-  //   pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
-
-  //   delay(10);
-  // }
-  // pitchCalibration = pitchSum / 500.0;
-
-  // Serial.print(pitchCalibration);
+  // Start the server
+  server.begin();
+  Serial.println("Server started");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
@@ -271,12 +267,11 @@ void setup()
   commandTimer = millis();
 }
 
-
 void loop()
 {
-  //Static variables are initialised once and then the value is remembered between subsequent calls to this function
-  static unsigned long printTimer = 0;  //time of the next print
-  static unsigned long loopTimer = 0;   //time of the next control update
+  // Static variables are initialised once and then the value is remembered between subsequent calls to this function
+  static unsigned long printTimer = 0;  // time of the next print
+  static unsigned long loopTimer = 0;   // time of the next control update
 
   // Flags to track key states
   static bool moveForwardFlag = false;
@@ -284,14 +279,14 @@ void loop()
   static bool rotateLeftFlag = false;
   static bool rotateRightFlag = false;
 
-   // Timers for key release detection
+  // Timers for key release detection
   static unsigned long forwardKeyReleaseTimer = 0;
   static unsigned long backwardKeyReleaseTimer = 0;
   static unsigned long leftKeyReleaseTimer = 0;
   static unsigned long rightKeyReleaseTimer = 0;
   const unsigned long keyReleaseDelay = 10; // Delay to detect key release
 
-  //Run the control loop every LOOP_INTERVAL ms
+  // Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
     loopTimer += LOOP_INTERVAL;
 
@@ -300,7 +295,7 @@ void loop()
     mpu.getEvent(&a, &g, &temp);
 
     pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
-    //pitch = pitchIncrementer.next_value();
+    // pitch = pitchIncrementer.next_value();
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
 
@@ -359,101 +354,85 @@ void loop()
         step1.setTargetSpeedRad(-20);
         step2.setTargetSpeedRad(20);
       } 
-      if(balanceControlOutput < 0) {
+      if (balanceControlOutput < 0) {
         step1.setTargetSpeedRad(20);
         step2.setTargetSpeedRad(-20);
       }
-      /*if(setpoint == 0){
-        if(balanceControlOutput < 0){setpoint += 0.0015;
-        Serial.print("hi");}
-        if(balanceControlOutput > 0){setpoint -= 0.0015;}
-      }*/
-
     } 
   }
 
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    // Serial.print("Output: ");
-    // Serial.println(balanceControlOutput, 6);
   }
 
-  if (Serial.available() > 0) {
-    char command = Serial.read();
-    unsigned long currentTime = millis();
+  WiFiClient client = server.available();
+  if (client) {
+    Serial.println("New Client.");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            sendResponse(client, "ESP32 Robot Control");
 
-    switch (command) {
-      case 'w':
-        moveForwardFlag = true;
-        forwardKeyReleaseTimer = currentTime;
-        break;
-      case 's':
-        moveBackwardFlag = true;
-        backwardKeyReleaseTimer = currentTime;
-        break;
-      case 'a':
-        rotateLeftFlag = true;
-        leftKeyReleaseTimer = currentTime;
-        break;
-      case 'd':
-        rotateRightFlag = true;
-        rightKeyReleaseTimer = currentTime;
-        break;
-      case 'x':
-        moveForwardFlag = false;
-        moveBackwardFlag = false;
-        rotateLeftFlag = false;
-        rotateRightFlag = false;
-        stop();
-        break;
-      default:
-        moveForwardFlag = false;
-        moveBackwardFlag = false;
-        rotateLeftFlag = false;
-        rotateRightFlag = false;
-        stop();
-        break;
+            client.println("Use the buttons below to control the robot:");
+            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
+            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
+            client.println("<button onclick=\"fetch('/left')\">Left</button>");
+            client.println("<button onclick=\"fetch('/right')\">Right</button>");
+            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
+            client.println("<p id=\"status\"></p>");
+            client.println("<script>");
+            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
+            client.println("document.querySelectorAll('button').forEach(button => {");
+            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
+            client.println("});");
+            client.println("</script>");
+            client.println("</body></html>");
+
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+
+        if (currentLine.endsWith("GET /forward")) {
+          moveForward(30);
+          sendResponse(client, "Moving Forward");
+          Serial.println("Moving Forward");
+        }
+        if (currentLine.endsWith("GET /backward")) {
+          moveBackward(30);
+          sendResponse(client, "Moving Backward");
+          Serial.println("Moving Backward");
+        }
+        if (currentLine.endsWith("GET /left")) {
+          rotateLeft(5);
+          sendResponse(client, "Turning Left");
+          Serial.println("Turning Left");
+        }
+        if (currentLine.endsWith("GET /right")) {
+          rotateRight(5);
+          sendResponse(client, "Turning Right");
+          Serial.println("Turning Right");
+        }
+        if (currentLine.endsWith("GET /stop")) {
+          stop();
+          sendResponse(client, "Stopped");
+          Serial.println("Stopped");
+        }
+      }
     }
-  }
-
-  // Check if the key release delay has passed
-  if (millis() - forwardKeyReleaseTimer > keyReleaseDelay) {
-    moveForwardFlag = false;
-    //stop();
-  }
-  if (millis() - backwardKeyReleaseTimer > keyReleaseDelay) {
-    moveBackwardFlag = false;
-    //stop();
-  }
-  if (millis() - leftKeyReleaseTimer > keyReleaseDelay) {
-    rotateLeftFlag = false;
-    //stop();
-  }
-  if (millis() - rightKeyReleaseTimer > keyReleaseDelay) {
-    rotateRightFlag = false;
-    //stop();
-  }
-
-  // Execute movement based on flags
-  if (moveForwardFlag) {
-    moveForward(30);
-    Serial.print("forwards");
-  }
-  if (moveBackwardFlag) {
-    moveBackward(30);
-    Serial.print("back");
-  }
-  if (rotateLeftFlag) {
-    rotateLeft(5);
-    Serial.print("left");
-  }
-  if (rotateRightFlag) {
-    rotateRight(5);
-    Serial.print("right");
+    client.stop();
+    Serial.println("Client Disconnected.");
   }
 }
-
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////// Useful Functions ////////////////////////////
@@ -474,20 +453,24 @@ void stop() {
 
 void moveForward(double speed) {
   speedPid.setSetpoint(speed);
+  Serial.println("Move Forward function executed");  // Debug statement
 }
 
 void moveBackward(double speed) {
   speedPid.setSetpoint(-speed);
+  Serial.println("Move Backward function executed");  // Debug statement
 }
 
 void rotateLeft(double speed) {
   step1.setTargetSpeedRad(-speed);
   step2.setTargetSpeedRad(-speed);
+  Serial.println("Rotate Left function executed");  // Debug statement
 }
 
 void rotateRight(double speed) {
   step1.setTargetSpeedRad(speed);
   step2.setTargetSpeedRad(speed);
+  Serial.println("Rotate Right function executed");  // Debug statement
 }
 
 void checkAndToggleMotors() {
@@ -506,4 +489,16 @@ void checkAndToggleMotors() {
       motorsEnabled = true;
     }
   }
+}
+
+void sendResponse(WiFiClient& client, const char* message) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+  client.print("<html><body>");
+  client.print("<h1>");
+  client.print(message);
+  client.print("</h1>");
+  client.println("</body></html>");
+  client.println();
 }
