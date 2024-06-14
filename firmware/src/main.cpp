@@ -6,6 +6,8 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
+#include <WebSocketsServer.h>
+
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -42,6 +44,8 @@ double balanceControlOutput;
 double TargetTiltAngle;
 
 //Global objects
+WebSocketsServer webSocket = WebSocketsServer(81);
+
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
 
@@ -97,15 +101,6 @@ const double deadBand = 0; // Dead-band threshold for ignoring small angle chang
 // double currentPosition = 0.0;
 // double speed = 0.0; 
 
-// Function prototypes
-void moveForward(double speed);
-void moveBackward(double speed);
-void rotateLeft(double speed);
-void rotateRight(double speed);
-void stop();
-void checkAndToggleMotors();
-void resetSteppers();
-
 //Interrupt Service Routine for motor update
 //Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -121,6 +116,70 @@ bool timerHandler(void * timerNo)
   toggle = !toggle;
 	return true;
 }
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Movement ////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+// Functions to move forward, backward, and turn
+void stop() {
+  speedPid.setSetpoint(0);
+}
+
+void moveForward(double speed) {
+  speedPid.setSetpoint(speed);
+}
+
+void moveBackward(double speed) {
+  speedPid.setSetpoint(-speed);
+}
+
+void turnLeft(double speed) {
+  step1.setTargetSpeedRad(-speed);
+  step2.setTargetSpeedRad(-speed);
+}
+
+void turnRight(double speed) {
+  step1.setTargetSpeedRad(speed);
+  step2.setTargetSpeedRad(speed);
+}
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Communication ///////////////////////////////
+//////////////////////////////////////////////////////////////////////
+void handleCommand(char* cmd) {
+    if (strcmp(cmd, "MOVE_FORWARD") == 0) {
+        moveForward(15);
+    } else if (strcmp(cmd, "MOVE_BACKWARD") == 0) {
+        moveBackward(15);
+    } else if (strcmp(cmd, "TURN_LEFT") == 0) {
+        turnLeft(5);
+    } else if (strcmp(cmd, "TURN_RIGHT") == 0) {
+        turnRight(5);
+    }
+}
+
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[%u] Disconnected!\n", num);
+            break;
+        case WStype_CONNECTED:
+            {
+                IPAddress ip = webSocket.remoteIP(num);
+                Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+            }
+            break;
+        case WStype_TEXT:
+            Serial.printf("[%u] Text: %s\n", num, payload);
+            // Handle received text (control commands)
+            // Example: move robot based on command
+            handleCommand((char *)payload);
+            break;
+    }
+}
+
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -210,6 +269,40 @@ private:
 
 Incrementer pitchIncrementer;
 
+
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Useful Functions ////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
+}
+
+
+
+void checkAndToggleMotors() {
+  if (abs(filteredAngle) > 0.7) {
+    if (motorsEnabled) {
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
+      step1.setAccelerationRad(0);
+      step2.setAccelerationRad(0);
+      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
+      motorsEnabled = false;
+    }
+  } else {
+    if (!motorsEnabled) {
+      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
+      motorsEnabled = true;
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// Main Functionality /////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
@@ -267,6 +360,9 @@ void setup()
 
   calculateButterworthCoefficients();
 
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+
   // Initialize command timer
   commandTimer = millis();
 }
@@ -277,19 +373,6 @@ void loop()
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
-
-  // Flags to track key states
-  static bool moveForwardFlag = false;
-  static bool moveBackwardFlag = false;
-  static bool rotateLeftFlag = false;
-  static bool rotateRightFlag = false;
-
-   // Timers for key release detection
-  static unsigned long forwardKeyReleaseTimer = 0;
-  static unsigned long backwardKeyReleaseTimer = 0;
-  static unsigned long leftKeyReleaseTimer = 0;
-  static unsigned long rightKeyReleaseTimer = 0;
-  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
 
   //Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
@@ -379,131 +462,6 @@ void loop()
     // Serial.println(balanceControlOutput, 6);
   }
 
-  if (Serial.available() > 0) {
-    char command = Serial.read();
-    unsigned long currentTime = millis();
-
-    switch (command) {
-      case 'w':
-        moveForwardFlag = true;
-        forwardKeyReleaseTimer = currentTime;
-        break;
-      case 's':
-        moveBackwardFlag = true;
-        backwardKeyReleaseTimer = currentTime;
-        break;
-      case 'a':
-        rotateLeftFlag = true;
-        leftKeyReleaseTimer = currentTime;
-        break;
-      case 'd':
-        rotateRightFlag = true;
-        rightKeyReleaseTimer = currentTime;
-        break;
-      case 'x':
-        moveForwardFlag = false;
-        moveBackwardFlag = false;
-        rotateLeftFlag = false;
-        rotateRightFlag = false;
-        stop();
-        break;
-      default:
-        moveForwardFlag = false;
-        moveBackwardFlag = false;
-        rotateLeftFlag = false;
-        rotateRightFlag = false;
-        stop();
-        break;
-    }
-  }
-
-  // Check if the key release delay has passed
-  if (millis() - forwardKeyReleaseTimer > keyReleaseDelay) {
-    moveForwardFlag = false;
-    //stop();
-  }
-  if (millis() - backwardKeyReleaseTimer > keyReleaseDelay) {
-    moveBackwardFlag = false;
-    //stop();
-  }
-  if (millis() - leftKeyReleaseTimer > keyReleaseDelay) {
-    rotateLeftFlag = false;
-    //stop();
-  }
-  if (millis() - rightKeyReleaseTimer > keyReleaseDelay) {
-    rotateRightFlag = false;
-    //stop();
-  }
-
-  // Execute movement based on flags
-  if (moveForwardFlag) {
-    moveForward(30);
-    Serial.print("forwards");
-  }
-  if (moveBackwardFlag) {
-    moveBackward(30);
-    Serial.print("back");
-  }
-  if (rotateLeftFlag) {
-    rotateLeft(5);
-    Serial.print("left");
-  }
-  if (rotateRightFlag) {
-    rotateRight(5);
-    Serial.print("right");
-  }
+  webSocket.loop();
 }
 
-
-//////////////////////////////////////////////////////////////////////
-//////////////////////// Useful Functions ////////////////////////////
-//////////////////////////////////////////////////////////////////////
-
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
-  step1.setAccelerationRad(0);
-  step2.setAccelerationRad(0);
-  delay(10);  // Allow some time for the steppers to stop
-}
-
-// Functions to move forward, backward, and turn
-void stop() {
-  speedPid.setSetpoint(0);
-}
-
-void moveForward(double speed) {
-  speedPid.setSetpoint(speed);
-}
-
-void moveBackward(double speed) {
-  speedPid.setSetpoint(-speed);
-}
-
-void rotateLeft(double speed) {
-  step1.setTargetSpeedRad(-speed);
-  step2.setTargetSpeedRad(-speed);
-}
-
-void rotateRight(double speed) {
-  step1.setTargetSpeedRad(speed);
-  step2.setTargetSpeedRad(speed);
-}
-
-void checkAndToggleMotors() {
-  if (abs(filteredAngle) > 0.7) {
-    if (motorsEnabled) {
-      step1.setTargetSpeedRad(0);
-      step2.setTargetSpeedRad(0);
-      step1.setAccelerationRad(0);
-      step2.setAccelerationRad(0);
-      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
-      motorsEnabled = false;
-    }
-  } else {
-    if (!motorsEnabled) {
-      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
-      motorsEnabled = true;
-    }
-  }
-}
