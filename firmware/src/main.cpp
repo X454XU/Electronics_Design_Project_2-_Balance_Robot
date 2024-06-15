@@ -6,7 +6,8 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
-#include <WebSocketsServer.h>
+#include <WebSocketsClient.h>
+#include <WiFi.h>
 
 
 // The Stepper pins
@@ -44,7 +45,12 @@ double balanceControlOutput;
 double TargetTiltAngle;
 
 //Global objects
-WebSocketsServer webSocket = WebSocketsServer(81);
+const char* ssid = "";
+const char* password = "";
+const char* host = "your_ip";
+const uint16_t port = 8080;
+
+WebSocketsClient webSocket;
 
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
@@ -147,39 +153,43 @@ void turnRight(double speed) {
 //////////////////////////////////////////////////////////////////////
 //////////////////////// Communication ///////////////////////////////
 //////////////////////////////////////////////////////////////////////
-void handleCommand(char* cmd) {
-    if (strcmp(cmd, "MOVE_FORWARD") == 0) {
-        moveForward(15);
-    } else if (strcmp(cmd, "MOVE_BACKWARD") == 0) {
-        moveBackward(15);
-    } else if (strcmp(cmd, "TURN_LEFT") == 0) {
-        turnLeft(5);
-    } else if (strcmp(cmd, "TURN_RIGHT") == 0) {
-        turnRight(5);
-    }
-}
 
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
         case WStype_DISCONNECTED:
-            Serial.printf("[%u] Disconnected!\n", num);
+            Serial.println("Disconnected!");
             break;
         case WStype_CONNECTED:
-            {
-                IPAddress ip = webSocket.remoteIP(num);
-                Serial.printf("[%u] Connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
-            }
+            Serial.println("Connected!");
             break;
         case WStype_TEXT:
-            Serial.printf("[%u] Text: %s\n", num, payload);
+            Serial.printf("Text: %s\n", payload);
             // Handle received text (control commands)
-            // Example: move robot based on command
-            handleCommand((char *)payload);
+            if (strcmp((char *)payload, "MOVE_W") == 0) {
+                // move the robot forward
+                moveForward(15);
+            } else if (strcmp((char *)payload, "MOVE_A") == 0) {
+                // move the robot left
+                 turnLeft(5);
+            } else if (strcmp((char *)payload, "MOVE_S") == 0) {
+                // move the robot backward
+                moveBackward(15);
+            } else if (strcmp((char *)payload, "MOVE_D") == 0) {
+                // move the robot right
+                 turnRight(5);
+            } else if (strcmp((char *)payload, "STOP") == 0) {
+                // Code to stop the robot
+                stop();
+            }
             break;
     }
 }
 
+void sendSpeedToServer(float speedCmPerSecond) {
+    String speedMessage = "SPEED_" + String(speedCmPerSecond);
+    webSocket.sendTXT(speedMessage);
+}
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -304,12 +314,13 @@ void checkAndToggleMotors() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////// Main Functionality /////////////////////////////////////////////
+////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
 void setup()
 {
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
+  Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
 
@@ -360,8 +371,24 @@ void setup()
 
   calculateButterworthCoefficients();
 
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
+  WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  int maxAttempts = 20; // Try for 20 seconds
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+      delay(1000);
+      Serial.println("Connecting to WiFi...");
+      attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Connected to WiFi");
+      webSocket.begin(host, port, "/"); // Replace with your laptop's IP address
+      webSocket.onEvent(webSocketEvent);
+      Serial.println("WebSocket client started");
+  } else {
+      Serial.println("Failed to connect to WiFi");
+  }
 
   // Initialize command timer
   commandTimer = millis();
@@ -370,6 +397,7 @@ void setup()
 
 void loop()
 {
+  webSocket.listen();
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
@@ -461,7 +489,10 @@ void loop()
     // Serial.print("Output: ");
     // Serial.println(balanceControlOutput, 6);
   }
-
-  webSocket.loop();
+  if(WiFi.status() == WL_CONNECTED){
+    sendSpeedToServer(speedCmPerSecond);
+    webSocket.loop();
+  }
+  
 }
 
