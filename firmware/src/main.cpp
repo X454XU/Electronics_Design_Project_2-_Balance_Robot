@@ -28,16 +28,20 @@ const int STEPPER_INTERVAL_US = 20;
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 // PID tuning parameters
-double kp = 800; // 1000
-double ki = 15; //15
-double kd = 95; //95
+double kp = 900; // 1000
+double ki = 17; //15
+double kd = 80; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 3; //3
-double speedKi = 0.35; //0.35
-double speedKd = 0.2; //0.2
+double speedKp = 1; //3
+double speedKi = 0.38; //0.35
+double speedKd = 0.23; //0.2
 double speedSetpoint = 0; // Desired speed
+
+// Yaw control parameters
+double yawSetpoint = 0.0; 
+double yawCorrectionGain = 150; 
 
 int countr;
 
@@ -75,6 +79,15 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
+float filteredAngleYaw = 0.0;
+float previousFilteredAngleYaw = 0.0;
+
+float gyroBiasX = 0;
+unsigned long lastTime = 0; 
+
+const int calibrationSamples = 500;
+
+
 unsigned long commandTimer = 0;
 int commandIndex = 0;
 
@@ -102,7 +115,7 @@ double previousSpeedControlOutput = 0;
 double prevAccel = 0;
 
 // Maybe needs further tuning
-const double deadBand = 3; // Dead-band threshold for ignoring small angle changes
+const double deadBand = 7; // Dead-band threshold for ignoring small angle changes
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -146,6 +159,11 @@ void turnRight(double speed) {
   step1.setTargetSpeedRad(speed);
   step2.setTargetSpeedRad(speed);
 }
+
+void setYawSetpoint(double yawVal){
+  yawSetpoint = yawVal;
+}
+
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////// Communication ///////////////////////////////
@@ -295,6 +313,34 @@ Incrementer pitchIncrementer;
 //////////////////////////////////////////////////////////////////////
 //////////////////////// Useful Functions ////////////////////////////
 //////////////////////////////////////////////////////////////////////
+void calibrateSensors() {
+  Serial.println("Calibrating sensors...");
+  float sumGyroX = 0;
+
+  for (int i = 0; i < calibrationSamples; i++) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    sumGyroX += g.gyro.x;
+
+    delay(10); // Adjust delay as needed
+  }
+
+  gyroBiasX = sumGyroX / calibrationSamples;
+
+  Serial.println("Sensor calibration complete.");
+  Serial.print("Gyro Bias X: "); Serial.println(gyroBiasX);
+}
+
+float normalizeAngle(float angle) {
+    // Adjust the angle to be within the range [-π, π)
+    angle = fmod(angle + M_PI, 2 * M_PI);
+    if (angle < 0) {
+        angle += 2 * M_PI;
+    }
+    return angle - M_PI;
+}
+
 
 void resetSteppers() {
   step1.setTargetSpeedRad(0);
@@ -346,6 +392,9 @@ void setup()
   mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+
+  // Calibrate sensors
+  calibrateSensors();
 
   // Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
@@ -402,11 +451,16 @@ void setup()
   }
   */
   // Initialize command timer
+
   commandTimer = millis();
+
+  
 
   countr = 0;
 
 }
+
+double yawError;
 
 void loop()
 {
@@ -422,13 +476,37 @@ void loop()
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
+    float gyroX = g.gyro.x - gyroBiasX;
+
+    //////////////// YAW ///////////////////////
+    // Gyro rates(rate of change of tilt) in radians
+    double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
+    
+    filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
+    
+    filteredAngleYaw = normalizeAngle(filteredAngleYaw);
+    
+    previousFilteredAngleYaw = filteredAngleYaw;
+
+    yawError = yawSetpoint - filteredAngleYaw;
+    
+    // Normalize yaw error to range -Pi to Pi
+    if (yawError > PI) {
+        yawError -= 2 * PI;
+    } else if (yawError < -PI) {
+        yawError += 2 * PI;
+    }
+    
+    double yawCorrection = yawCorrectionGain * yawError;
+
+
+    //////////////// PITCH ///////////////////////
     pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
     // pitch = pitchIncrementer.next_value();
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
 
     // Apply complementary filter
-    double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
     filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
     previousFilteredAngle = filteredAngle;
 
@@ -470,18 +548,13 @@ void loop()
       balancePid.setSetpoint(TargetTiltAngle);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
-      if(speedSetpoint == 0){
-        if (balanceControlOutput < 0){speedSetpoint += 0.0015;}
-        else if (balanceControlOutput > 0){speedSetpoint -= 0.0015;}
-      }
-
       // Apply dead-band
       if (abs(balanceControlOutput) < deadBand) {
         balanceControlOutput = 0;
       }
 
-      step1.setAccelerationRad(-balanceControlOutput);
-      step2.setAccelerationRad(balanceControlOutput);
+      step1.setAccelerationRad(-balanceControlOutput - yawCorrection);
+      step2.setAccelerationRad(balanceControlOutput - yawCorrection);
 
       if (balanceControlOutput > 0) {
         step1.setTargetSpeedRad(-20);
@@ -491,6 +564,12 @@ void loop()
         step1.setTargetSpeedRad(20);
         step2.setTargetSpeedRad(-20);
       }
+      if(countr > 1000){
+        resetSteppers();
+        countr = 0;
+        Serial.print("Reset");
+      }
+      countr += 1;
     } 
   }
   
@@ -498,8 +577,10 @@ void loop()
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    Serial.print("Setpoint");
-    Serial.println(speedSetpoint, 6);
+    Serial.print(" Filtered Yaw: ");
+    Serial.println(filteredAngleYaw, 6);
+    Serial.print(" balanceControlOutput : ");
+    Serial.println(balanceControlOutput, 6);
   }
 
   // WiFiClient client = server.available();
