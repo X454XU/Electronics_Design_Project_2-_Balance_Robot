@@ -7,12 +7,9 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
+#include <WebSocketsClient.h>
+#include <WiFi.h>
 
-// WiFi credentials
-const char* ssid = "fred";  // Replace with your WiFi SSID
-const char* password = "12345678";  // Replace with your WiFi password
-
-WiFiServer server(80);  // Create a server on port 80
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -37,10 +34,12 @@ double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 1;
-double speedKi = 0.1;
-double speedKd = 0.2;//1000;
+double speedKp = 3; 
+double speedKi = 0.35; 
+double speedKd = 0.2;
 double speedSetpoint = 0; // Desired speed
+
+int countr;
 
 double pidOutput;
 double speedPidOutput;
@@ -48,7 +47,16 @@ double speedControlOutput;
 double balanceControlOutput;
 double TargetTiltAngle;
 
-// Global objects
+//Global objects
+const char* ssid = "";
+const char* password = "";
+const char* host = "your_ip";
+const uint16_t port = 8080;
+
+WiFiServer server(80);  // Create a server on port 80
+
+//WebSocketsClient webSocket;
+
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
 
@@ -96,16 +104,6 @@ double prevAccel = 0;
 // Maybe needs further tuning
 const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
 
-// Function prototypes
-void moveForward(double speed);
-void moveBackward(double speed);
-void rotateLeft(double speed);
-void rotateRight(double speed);
-void stop();
-void checkAndToggleMotors();
-void resetSteppers();
-void sendResponse(WiFiClient& client, const char* message);
-
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
@@ -121,6 +119,92 @@ bool timerHandler(void * timerNo)
   toggle = !toggle;
   return true;
 }
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Movement ////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+// Functions to move forward, backward, and turn
+void stop() {
+  speedPid.setSetpoint(0);
+}
+
+void moveForward(double speed) {
+  speedPid.setSetpoint(speed);
+}
+
+void moveBackward(double speed) {
+  speedPid.setSetpoint(-speed);
+}
+
+void turnLeft(double speed) {
+  step1.setTargetSpeedRad(-speed);
+  step2.setTargetSpeedRad(-speed);
+}
+
+void turnRight(double speed) {
+  step1.setTargetSpeedRad(speed);
+  step2.setTargetSpeedRad(speed);
+}
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Communication ///////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+
+// void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+//     switch(type) {
+//         case WStype_DISCONNECTED:
+//             Serial.println("Disconnected!");
+//             break;
+//         case WStype_CONNECTED:
+//             Serial.println("Connected!");
+//             break;
+//         case WStype_TEXT:
+//             Serial.printf("Text: %s\n", payload);
+//             // Handle received text (control commands)
+//             if (strcmp((char *)payload, "MOVE_W") == 0) {
+//                 // move the robot forward
+//                 moveForward(15);
+//             } else if (strcmp((char *)payload, "MOVE_A") == 0) {
+//                 // move the robot left
+//                  turnLeft(5);
+//             } else if (strcmp((char *)payload, "MOVE_S") == 0) {
+//                 // move the robot backward
+//                 moveBackward(15);
+//             } else if (strcmp((char *)payload, "MOVE_D") == 0) {
+//                 // move the robot right
+//                  turnRight(5);
+//             } else if (strcmp((char *)payload, "STOP") == 0) {
+//                 // Code to stop the robot
+//                 stop();
+//             }
+//             break;
+//     }
+// }
+
+// void sendSpeedToServer(float speedCmPerSecond) {
+//     String speedMessage = "SPEED_" + String(speedCmPerSecond);
+//     webSocket.sendTXT(speedMessage);
+// }
+
+
+
+void sendResponse(WiFiClient& client, const char* message) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+  client.print("<html><body>");
+  client.print("<h1>");
+  client.print(message);
+  client.print("</h1>");
+  client.println("</body></html>");
+  client.println();
+}
+
+///////////////////////////////////////////////////////////////////////
+////////////////////////////// Filtering //////////////////////////////
+///////////////////////////////////////////////////////////////////////
 
 // Butterworth filter variables
 const int order = 2;
@@ -206,6 +290,40 @@ private:
 
 Incrementer pitchIncrementer;
 
+
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Useful Functions ////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
+}
+
+
+
+void checkAndToggleMotors() {
+  if (abs(filteredAngle) > 0.7) {
+    if (motorsEnabled) {
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
+      step1.setAccelerationRad(0);
+      step2.setAccelerationRad(0);
+      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
+      motorsEnabled = false;
+    }
+  } else {
+    if (!motorsEnabled) {
+      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
+      motorsEnabled = true;
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
@@ -213,6 +331,7 @@ Incrementer pitchIncrementer;
 void setup()
 {
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
+  Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
 
@@ -263,15 +382,37 @@ void setup()
 
   calculateButterworthCoefficients();
 
+  /*WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  int maxAttempts = 20; // Try for 20 seconds
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+      delay(1000);
+      Serial.println("Connecting to WiFi...");
+      attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Connected to WiFi");
+      webSocket.begin(host, port, "/"); // Replace with your laptop's IP address
+      webSocket.onEvent(webSocketEvent);
+      Serial.println("WebSocket client started");
+  } else {
+      Serial.println("Failed to connect to WiFi");
+  }
+  */
   // Initialize command timer
   commandTimer = millis();
+
+  countr = 0;
+
 }
 
 void loop()
 {
-  // Static variables are initialised once and then the value is remembered between subsequent calls to this function
-  static unsigned long printTimer = 0;  // time of the next print
-  static unsigned long loopTimer = 0;   // time of the next control update
+  //Static variables are initialised once and then the value is remembered between subsequent calls to this function
+  static unsigned long printTimer = 0;  //time of the next print
+  static unsigned long loopTimer = 0;   //time of the next control update
 
   // Flags to track key states
   static bool moveForwardFlag = false;
@@ -279,7 +420,7 @@ void loop()
   static bool rotateLeftFlag = false;
   static bool rotateRightFlag = false;
 
-  // Timers for key release detection
+   // Timers for key release detection
   static unsigned long forwardKeyReleaseTimer = 0;
   static unsigned long backwardKeyReleaseTimer = 0;
   static unsigned long leftKeyReleaseTimer = 0;
@@ -360,6 +501,7 @@ void loop()
       }
     } 
   }
+  
 
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
@@ -434,71 +576,3 @@ void loop()
   }
 }
 
-//////////////////////////////////////////////////////////////////////
-//////////////////////// Useful Functions ////////////////////////////
-//////////////////////////////////////////////////////////////////////
-
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
-  step1.setAccelerationRad(0);
-  step2.setAccelerationRad(0);
-  delay(10);  // Allow some time for the steppers to stop
-}
-
-// Functions to move forward, backward, and turn
-void stop() {
-  speedPid.setSetpoint(0);
-}
-
-void moveForward(double speed) {
-  speedPid.setSetpoint(speed);
-  Serial.println("Move Forward function executed");  // Debug statement
-}
-
-void moveBackward(double speed) {
-  speedPid.setSetpoint(-speed);
-  Serial.println("Move Backward function executed");  // Debug statement
-}
-
-void rotateLeft(double speed) {
-  step1.setTargetSpeedRad(-speed);
-  step2.setTargetSpeedRad(-speed);
-  Serial.println("Rotate Left function executed");  // Debug statement
-}
-
-void rotateRight(double speed) {
-  step1.setTargetSpeedRad(speed);
-  step2.setTargetSpeedRad(speed);
-  Serial.println("Rotate Right function executed");  // Debug statement
-}
-
-void checkAndToggleMotors() {
-  if (abs(filteredAngle) > 0.7) {
-    if (motorsEnabled) {
-      step1.setTargetSpeedRad(0);
-      step2.setTargetSpeedRad(0);
-      step1.setAccelerationRad(0);
-      step2.setAccelerationRad(0);
-      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
-      motorsEnabled = false;
-    }
-  } else {
-    if (!motorsEnabled) {
-      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
-      motorsEnabled = true;
-    }
-  }
-}
-
-void sendResponse(WiFiClient& client, const char* message) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type:text/html");
-  client.println();
-  client.print("<html><body>");
-  client.print("<h1>");
-  client.print(message);
-  client.print("</h1>");
-  client.println("</body></html>");
-  client.println();
-}
