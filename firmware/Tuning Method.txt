@@ -82,7 +82,7 @@ apply_output_to_motors(output)
 
 This systematic approach should help you achieve a stable and well-tuned PID controller for your balancing robot.
 
-
+Inner Loop
 
 Ku = 495
 
@@ -160,5 +160,16 @@ Round 14:
 Kp = 80.96786825904 (0.9x)
 Ki = 13.207371732 (0.9x)
 Kd = 76.169111688 (0.8x)
+Round 15:
+Kp = 80
+Ki = 15
+Kd = 95
+
+Outer Loop:
+
+
+
+
+
 
 

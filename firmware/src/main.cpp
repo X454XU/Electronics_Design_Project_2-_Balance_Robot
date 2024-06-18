@@ -33,10 +33,12 @@ double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 1;
-double speedKi = 0.1;
-double speedKd = 0.2;//1000;
+double speedKp = 3; 
+double speedKi = 0.35; 
+double speedKd = 0.2;
 double speedSetpoint = 0; // Desired speed
+
+int countr;
 
 double pidOutput;
 double speedPidOutput;
@@ -371,7 +373,7 @@ void setup()
 
   calculateButterworthCoefficients();
 
-  WiFi.begin(ssid, password);
+  /*WiFi.begin(ssid, password);
 
   int attempts = 0;
   int maxAttempts = 20; // Try for 20 seconds
@@ -389,15 +391,18 @@ void setup()
   } else {
       Serial.println("Failed to connect to WiFi");
   }
-
+  */
   // Initialize command timer
   commandTimer = millis();
+
+  countr = 0;
+
 }
 
 
 void loop()
 {
-  webSocket.listen();
+  //webSocket.listen();
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
@@ -482,17 +487,36 @@ void loop()
 
     } 
   }
+  
 
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    // Serial.print("Output: ");
-    // Serial.println(balanceControlOutput, 6);
+    Serial.print("Speed: ");
+    Serial.println(speedCmPerSecond, 6);
+    Serial.print("Tilt: ");
+    Serial.println(pitch, 6);
+
+    if (countr < 20){
+      moveForward(10);
+      countr += 1;
+      if (countr == 20)
+      {
+        Serial.print("Switched: ");
+      }
+      //Serial.print("Moving Forwards: ");
+    }
+    else{
+      moveBackward(10);
+      //Serial.print("Moving Backwards: ");
+    }
   }
-  if(WiFi.status() == WL_CONNECTED){
+  /*if(WiFi.status() == WL_CONNECTED){
     sendSpeedToServer(speedCmPerSecond);
     webSocket.loop();
   }
-  
+  */
+
+ 
 }
 
