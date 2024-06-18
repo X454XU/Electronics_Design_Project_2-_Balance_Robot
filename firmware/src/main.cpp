@@ -39,9 +39,11 @@ double speedKi = 0.38; //0.35
 double speedKd = 0.23; //0.2
 double speedSetpoint = 0; // Desired speed
 
-// Yaw control parameters
+// PID tuning parameters for Yaw control
+double yawKp = 10; 
+double yawKi = 0; 
+double yawKd = 0; 
 double yawSetpoint = 0.0; 
-double yawCorrectionGain = 150; 
 
 int countr;
 
@@ -72,6 +74,9 @@ MPU6050_DATA mpu6050_data;
 
 PID balancePid(kp, ki, kd, setpoint);
 PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
+PID yawPID(yawKp, yawKi, yawKd, yawSetpoint);
+
+yawPID.isYawFn(true);
 
 // Complementary filter constant
 const double alpha = 0.98; 
@@ -158,10 +163,6 @@ void turnLeft(double speed) {
 void turnRight(double speed) {
   step1.setTargetSpeedRad(speed);
   step2.setTargetSpeedRad(speed);
-}
-
-void setYawSetpoint(double yawVal){
-  yawSetpoint = yawVal;
 }
 
 
@@ -479,7 +480,6 @@ void loop()
     float gyroX = g.gyro.x - gyroBiasX;
 
     //////////////// YAW ///////////////////////
-    // Gyro rates(rate of change of tilt) in radians
     double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
     
     filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
@@ -487,17 +487,8 @@ void loop()
     filteredAngleYaw = normalizeAngle(filteredAngleYaw);
     
     previousFilteredAngleYaw = filteredAngleYaw;
-
-    yawError = yawSetpoint - filteredAngleYaw;
     
-    // Normalize yaw error to range -Pi to Pi
-    if (yawError > PI) {
-        yawError -= 2 * PI;
-    } else if (yawError < -PI) {
-        yawError += 2 * PI;
-    }
-    
-    double yawCorrection = yawCorrectionGain * yawError;
+    double yawCorrection = yawPID.compute(filteredAngleYaw);
 
 
     //////////////// PITCH ///////////////////////

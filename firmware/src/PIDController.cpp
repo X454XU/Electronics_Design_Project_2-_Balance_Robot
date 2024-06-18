@@ -2,6 +2,7 @@
 #include <algorithm> // For std::max and std::min
 #include <chrono> // For time functions
 #include <iostream>
+#include <cmath> 
 
 // Constructor
 PID::PID(double kp, double ki, double kd, double setpoint) {
@@ -16,6 +17,7 @@ PID::PID(double kp, double ki, double kd, double setpoint) {
     this->sampleTime = 0.01; // Default sample time in seconds
     this->lastTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     this->lastOutput = 0.0;
+    this->isYaw = false;
 }
 
 // Set tuning parameters
@@ -28,6 +30,10 @@ void PID::setTunings(double kp, double ki, double kd) {
 // Set the desired setpoint
 void PID::setSetpoint(double setpoint) {
     this->setpoint = setpoint;
+}
+
+void PID::isYawFn(bool yn) {
+    this->isYaw = yn;
 }
 
 // Set the time interval between calculations
@@ -53,6 +59,15 @@ double PID::compute(double input) {
     if (timeChange >= sampleTime) {
         // Calculate error
         double error = setpoint - input;
+
+        if(isYaw == true){
+            // Normalize yaw error to range -Pi to Pi
+            if (error > M_PI) {
+                error -= 2 * M_PI;
+            } else if (error < -M_PI) {
+                error += 2 * M_PI;
+            }
+        }
         
         // Integral term calculation
         integral += error * timeChange;
