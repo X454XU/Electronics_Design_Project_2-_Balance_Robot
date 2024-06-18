@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "ESP32"
+		},
+		{
+			"path": "robot_web"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "robot_web"
+	}
+}
