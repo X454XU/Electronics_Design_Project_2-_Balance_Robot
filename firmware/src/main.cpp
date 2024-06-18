@@ -158,6 +158,20 @@ void turnRight(double speed) {
 //////////////////////// Communication ///////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
+char listenToUart2() {
+  // Check if data is available on Serial2
+  if (Serial2.available()) {
+    // Read and return the first character
+    return Serial2.read();
+  }
+  // Return a null character if no data is available
+  return '\0';
+}
+void sendFloatToUart2(float value) {
+  // Convert the float to a string and send it via Serial2
+  Serial2.print(value);
+  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
+}
 
 // void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 //     switch(type) {
@@ -197,17 +211,17 @@ void turnRight(double speed) {
 
 
 
-void sendResponse(WiFiClient& client, const char* message) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type:text/html");
-  client.println();
-  client.print("<html><body>");
-  client.print("<h1>");
-  client.print(message);
-  client.print("</h1>");
-  client.println("</body></html>");
-  client.println();
-}
+// void sendResponse(WiFiClient& client, const char* message) {
+//   client.println("HTTP/1.1 200 OK");
+//   client.println("Content-type:text/html");
+//   client.println();
+//   client.print("<html><body>");
+//   client.print("<h1>");
+//   client.print(message);
+//   client.print("</h1>");
+//   client.println("</body></html>");
+//   client.println();
+// }
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -335,24 +349,12 @@ void checkAndToggleMotors() {
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
-char listenToUart2() {
-  // Check if data is available on Serial2
-  if (Serial2.available()) {
-    // Read and return the first character
-    return Serial2.read();
-  }
-  // Return a null character if no data is available
-  return '\0';
-}
-void sendFloatToUart2(float value) {
-  // Convert the float to a string and send it via Serial2
-  Serial2.print(value);
-  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
-}
+
 
 void setup()
 {
   Serial2.begin(9600, SERIAL_8N1, RX2, TX2); 
+
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
   Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);
@@ -531,71 +533,71 @@ void loop()
     printTimer += PRINT_INTERVAL;
   }
 
-  WiFiClient client = server.available();
-  if (client) {
-    Serial.println("New Client.");
-    String currentLine = "";
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-        if (c == '\n') {
-          if (currentLine.length() == 0) {
-            sendResponse(client, "ESP32 Robot Control");
+  // WiFiClient client = server.available();
+  // if (client) {
+  //   Serial.println("New Client.");
+  //   String currentLine = "";
+  //   while (client.connected()) {
+  //     if (client.available()) {
+  //       char c = client.read();
+  //       Serial.write(c);
+  //       if (c == '\n') {
+  //         if (currentLine.length() == 0) {
+  //           sendResponse(client, "ESP32 Robot Control");
 
-            client.println("Use the buttons below to control the robot:");
-            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
-            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
-            client.println("<button onclick=\"fetch('/left')\">Left</button>");
-            client.println("<button onclick=\"fetch('/right')\">Right</button>");
-            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
-            client.println("<p id=\"status\"></p>");
-            client.println("<script>");
-            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
-            client.println("document.querySelectorAll('button').forEach(button => {");
-            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
-            client.println("});");
-            client.println("</script>");
-            client.println("</body></html>");
+  //           client.println("Use the buttons below to control the robot:");
+  //           client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
+  //           client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
+  //           client.println("<button onclick=\"fetch('/left')\">Left</button>");
+  //           client.println("<button onclick=\"fetch('/right')\">Right</button>");
+  //           client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
+  //           client.println("<p id=\"status\"></p>");
+  //           client.println("<script>");
+  //           client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
+  //           client.println("document.querySelectorAll('button').forEach(button => {");
+  //           client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
+  //           client.println("});");
+  //           client.println("</script>");
+  //           client.println("</body></html>");
 
-            client.println();
-            break;
-          } else {
-            currentLine = "";
-          }
-        } else if (c != '\r') {
-          currentLine += c;
-        }
+  //           client.println();
+  //           break;
+  //         } else {
+  //           currentLine = "";
+  //         }
+  //       } else if (c != '\r') {
+  //         currentLine += c;
+  //       }
 
-        if (currentLine.endsWith("GET /forward")) {
-          moveForward(30);
-          sendResponse(client, "Moving Forward");
-          Serial.println("Moving Forward");
-        }
-        if (currentLine.endsWith("GET /backward")) {
-          moveBackward(30);
-          sendResponse(client, "Moving Backward");
-          Serial.println("Moving Backward");
-        }
-        if (currentLine.endsWith("GET /left")) {
-          rotateLeft(5);
-          sendResponse(client, "Turning Left");
-          Serial.println("Turning Left");
-        }
-        if (currentLine.endsWith("GET /right")) {
-          rotateRight(5);
-          sendResponse(client, "Turning Right");
-          Serial.println("Turning Right");
-        }
-        if (currentLine.endsWith("GET /stop")) {
-          stop();
-          sendResponse(client, "Stopped");
-          Serial.println("Stopped");
-        }
-      }
-    }
-    client.stop();
-    Serial.println("Client Disconnected.");
-  }
+  //       if (currentLine.endsWith("GET /forward")) {
+  //         moveForward(30);
+  //         sendResponse(client, "Moving Forward");
+  //         Serial.println("Moving Forward");
+  //       }
+  //       if (currentLine.endsWith("GET /backward")) {
+  //         moveBackward(30);
+  //         sendResponse(client, "Moving Backward");
+  //         Serial.println("Moving Backward");
+  //       }
+  //       if (currentLine.endsWith("GET /left")) {
+  //         rotateLeft(5);
+  //         sendResponse(client, "Turning Left");
+  //         Serial.println("Turning Left");
+  //       }
+  //       if (currentLine.endsWith("GET /right")) {
+  //         rotateRight(5);
+  //         sendResponse(client, "Turning Right");
+  //         Serial.println("Turning Right");
+  //       }
+  //       if (currentLine.endsWith("GET /stop")) {
+  //         stop();
+  //         sendResponse(client, "Stopped");
+  //         Serial.println("Stopped");
+  //       }
+  //     }
+  //   }
+  //   client.stop();
+  //   Serial.println("Client Disconnected.");
+  // }
 }
 
