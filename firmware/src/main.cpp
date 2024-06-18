@@ -28,15 +28,15 @@ const int STEPPER_INTERVAL_US = 20;
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 // PID tuning parameters
-double kp = 1000; // 640
-double ki = 15; //15
-double kd = 95; //95
+double kp = 900; // 1000
+double ki = 17; //15
+double kd = 80; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 3; 
-double speedKi = 0.35; 
-double speedKd = 0.2;
+double speedKp = 1; //3
+double speedKi = 0.38; //0.35
+double speedKd = 0.23; //0.2
 double speedSetpoint = 0; // Desired speed
 
 int countr;
