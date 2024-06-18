@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 #include <TimerInterrupt_Generic.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -7,19 +8,11 @@
 #include <PIDController.h>
 #include <chrono> // For time functions
 
-// Task handles
-TaskHandle_t Balance;
-TaskHandle_t Movement;
-//flag for switching tasks
-bool input = false;
-//flags for movement
-bool m_w = false;
-bool m_a = false;
-bool m_s = false;
-bool m_d = false;
-//calculating angle for moving forwards/backwards
-bool inRange;
-float edge = 0.05;
+// WiFi credentials
+const char* ssid = "fred";  // Replace with your WiFi SSID
+const char* password = "12345678";  // Replace with your WiFi password
+
+WiFiServer server(80);  // Create a server on port 80
 
 // The Stepper pins
 #define STEPPER1_DIR_PIN 16   //Arduino D9
@@ -33,29 +26,29 @@ float edge = 0.05;
 
 const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
-const int  STEPPER_INTERVAL_US = 20;
+const int STEPPER_INTERVAL_US = 20;
 
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
-//PID tuning parameters
+// PID tuning parameters
 double kp = 1000; // 640
 double ki = 15; //15
 double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 100;
-double speedKi = 0;
-double speedKd = 0;
+double speedKp = 1;
+double speedKi = 0.1;
+double speedKd = 0.2;//1000;
 double speedSetpoint = 0; // Desired speed
 
 double pidOutput;
 double speedPidOutput;
 double speedControlOutput;
 double balanceControlOutput;
-double desiredTiltAngle;
+double TargetTiltAngle;
 
-//Global objects
+// Global objects
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
 
@@ -74,12 +67,8 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
-
-double pitchCalibration = 0.0;
-double yawCalibration = 0.0;
 
 float pitch = 0.0;
 
@@ -101,37 +90,37 @@ float rotationalSpeedRadPerSecond;
 float speedCmPerSecond1;
 float speedCmPerSecond2;
 
+double previousSpeedControlOutput = 0;
+double prevAccel = 0;
+
 // Maybe needs further tuning
-const double deadBand = 4; // Dead-band threshold for ignoring small angle changes
-
-
-// double currentPosition = 0.0;
-// double speed = 0.0; 
+const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
 
 // Function prototypes
 void moveForward(double speed);
 void moveBackward(double speed);
-void turnLeft(double speed);
-void turnRight(double speed);
+void rotateLeft(double speed);
+void rotateRight(double speed);
 void stop();
 void checkAndToggleMotors();
+void resetSteppers();
+void sendResponse(WiFiClient& client, const char* message);
 
-//Interrupt Service Routine for motor update
-//Note: ESP32 doesn't support floating point calculations in an ISR
+// Interrupt Service Routine for motor update
+// Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
 {
   static bool toggle = false;
 
-  //Update the stepper motors
+  // Update the stepper motors
   step1.runStepper();
   step2.runStepper();
 
-  //Indicate that the ISR is running
+  // Indicate that the ISR is running
   digitalWrite(TOGGLE_PIN, toggle);
   toggle = !toggle;
-	return true;
+  return true;
 }
-
 
 // Butterworth filter variables
 const int order = 2;
@@ -182,246 +171,44 @@ float butterworthFilter(float *x, float *y, float input) {
   return y[0];
 }
 
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////// Testing /////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
-  step1.setAccelerationRad(0);
-  step2.setAccelerationRad(0);
-  delay(10);  // Allow some time for the steppers to stop
-}
+class Incrementer {
+public:
+    Incrementer(float start=-0.01, float end=0.01, float step=0.0002, int incrementInterval=50)
+        : start(start), current(start), end(end), step(step), incrementInterval(incrementInterval), counter(0), direction(1) {}
 
-
-void BalanceCode(void * parameter){
-  for(;;) {
-
-    //Static variables are initialised once and then the value is remembered between subsequent calls to this function
-    static unsigned long printTimer = 0;  //time of the next print
-    static unsigned long loopTimer = 0;   //time of the next control update
-
-    //Run the control loop every LOOP_INTERVAL ms
-    if (millis() > loopTimer) {
-      loopTimer += LOOP_INTERVAL;
-
-      // Fetch data from MPU6050
-      sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
-
-      pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - pitchCalibration;
-
-      // Gyro rates (rate of change of tilt) in radians
-      float gyroPitchRate = g.gyro.y; // Pitch rate
-
-      // Apply complementary filter
-      double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
-      filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
-      previousFilteredAngle = filteredAngle;
-
-      // Check and toggle motors based on tilt angle
-      checkAndToggleMotors();
-
-      if (motorsEnabled) {
-        // Get raw speed readings
-        float rawSpeed1 = step1.getSpeed() / 2000.0;
-        float rawSpeed2 = step2.getSpeed() / 2000.0;
-
-        // Apply exponential moving average
-        emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
-        emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
-
-        // Apply Butterworth low-pass filter
-        float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
-        float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
-
-        // Average the speeds of the two motors 
-        float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
-
-        // Convert speed from steps per second to cm per second
-        float distancePerStep = wheelCircumference / stepsPerRevolution;
-        speedCmPerSecond = averageSpeedSteps * distancePerStep;
-
-        speedCmPerSecond1 = butterSpeed1 * distancePerStep;
-        speedCmPerSecond2 = butterSpeed2 * distancePerStep;
-
-        // Calculate the rotational speed in radians per second
-        rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
-
-        // Outer loop: Speed control
-        speedPid.setSetpoint(speedSetpoint);
-        speedControlOutput = speedPid.compute(speedCmPerSecond);
-
-        desiredTiltAngle = speedControlOutput;
-
-        // Inner loop: Balance control with speed control output as setpoint
-        balancePid.setSetpoint(setpoint);
-        balanceControlOutput = balancePid.compute(filteredAngle);
-
-        // Apply dead-band
-        if (abs(balanceControlOutput) < deadBand) {
-          balanceControlOutput = 0;
+    float next_value() {
+        float value = current;
+        counter++;
+        if (counter >= incrementInterval) {
+            counter = 0;
+            current += step * direction;
+            if (current > end || current < start) {
+                direction *= -1; // Reverse direction
+                current += step * direction; // Correct overshoot
+            }
         }
-        /*if(setpoint == 0){
-          if(balanceControlOutput < 0){setpoint += 0.0015;
-          Serial.print("hi");}
-          if(balanceControlOutput > 0){setpoint -= 0.0015;}
-        }*/
-
-      } 
+        return value;
     }
 
-    // Print updates every PRINT_INTERVAL ms
-    if (millis() > printTimer) {
-      printTimer += PRINT_INTERVAL;
-      // Serial.print("Filtered Angle: ");
-      // Serial.println(filteredAngle);
-      Serial.print("rotational speed: ");
-      Serial.println(rotationalSpeedRadPerSecond);
-      Serial.print("Speed: ");
-      Serial.println(speedCmPerSecond);
-      Serial.print("Speed wheel 1: ");
-      Serial.println(speedCmPerSecond1);
-      Serial.print("Speed wheel 2: ");
-      Serial.println(speedCmPerSecond2);
-      // Serial.print("Target Angle inner loop: ");
-      // Serial.println(setpoint);
-      // Serial.print("Target angle outer loop: ");
-      // Serial.println(desiredTiltAngle);
-      // Serial.print("Speed Output: ");
-      // Serial.println(speedControlOutput);
-      // Serial.print("Pitch: ");
-      // Serial.println(pitch);
-      // Serial.print("Output: ");
-      // Serial.println(balanceControlOutput);
-    }
-  
-    if (!input){
-      if (m_w || m_s){
-        //moving forwards or backwards
-        if (m_w){
-          inRange = pitch > setpoint || pitch < setpoint - edge;
-        } else if (m_s) {
-          inRange = pitch < setpoint || pitch > setpoint + edge;
-        }
-        //block balancing for some angles in the direction of movement
-        if (inRange){
-          step1.setAccelerationRad(-balanceControlOutput);
-          step2.setAccelerationRad(balanceControlOutput);
+private:
+    float start;
+    float current;
+    float end;
+    float step;
+    int incrementInterval;
+    int counter;
+    int direction;
+};
 
-          if (balanceControlOutput > 0) {
-            step1.setTargetSpeedRad(-20);
-            step2.setTargetSpeedRad(20);
-          } 
-          if(balanceControlOutput < 0) {
-            step1.setTargetSpeedRad(20);
-            step2.setTargetSpeedRad(-20);
-          }
-        } else {
-          resetSteppers();
-        }
-      } else {
-        step1.setAccelerationRad(-balanceControlOutput);
-        step2.setAccelerationRad(balanceControlOutput);
+Incrementer pitchIncrementer;
 
-        if (balanceControlOutput > 0) {
-          step1.setTargetSpeedRad(-20);
-          step2.setTargetSpeedRad(20);
-        } 
-        if(balanceControlOutput < 0) {
-          step1.setTargetSpeedRad(20);
-          step2.setTargetSpeedRad(-20);
-        }
-      }     
-    }
-  }
-}
-
-void MovementCode(void * parameter) {
-  for(;;) {
-    if (Serial.available() > 0) {
-      // Read the incoming byte
-      char incomingByte = Serial.read();
-      
-      // Print the received byte
-      Serial.print("Received: ");
-      Serial.println(incomingByte);
-
-      float accel1 = 0;
-      float accel2 = 0;
-      float tspeed1 = 0;
-      float tspeed2 = 0;
-      //delay
-      int d = 50;
-      
-
-      // tap "a" or "d" to start turning left or right (repeated tap increases turning speed)
-      // moving forward and backward need to be combined with PID to make sure the
-      // forward distance is not neutralized by the backward balancing deviation 
-      if (incomingByte == 'w'){
-        Serial.println("impulse forwards");
-        accel1 = 80;
-        accel2 = -80;
-        tspeed1 = 20;
-        tspeed2 = -20;
-        d = 100;
-        if (m_s){
-          m_s = false;
-        } else {
-          m_w = true;
-        }
-      } else if (incomingByte == 's'){
-        Serial.println("impulse backwards");
-        accel1 = -80;
-        accel2 = 80;
-        tspeed1 = -20;
-        tspeed2 = 20;
-        d = 100;
-        if (m_w){
-          m_w = false;
-        } else {
-          m_s = true;
-        }
-      } else if (incomingByte == 'a'){
-        Serial.println("impulse left");
-        accel1 = -40;
-        accel2 = -40;
-        tspeed1 = -20;
-        tspeed2 = -20;
-        if (m_d){
-          m_d = false;
-        } else {
-          m_a = true;
-        }
-        m_w = false;
-        m_s = false;
-      } else if (incomingByte == 'd'){
-        Serial.println("impulse right");
-        accel1 = 40;
-        accel2 = 40;
-        tspeed1 = 20;
-        tspeed2 = 20;
-        if (m_a){
-          m_a = false;
-        } else {
-          m_d = true;
-        }
-        m_w = false;
-        m_s = false;
-      }
-
-      //the actual input sequence
-      if (incomingByte == 'w' || incomingByte == 's' || incomingByte == 'a' || incomingByte == 'd'){
-        input = true; // Indicate that we are handling input
-        step1.setAccelerationRad(accel1);
-        step2.setAccelerationRad(accel2);
-        step1.setTargetSpeedRad(tspeed1);
-        step2.setTargetSpeedRad(tspeed2);
-        delay(d);  // Duration of the impulse
-        resetSteppers(); // Stop any ongoing movements before applying new command
-        input = false;
-      }
-    }
-  }
-}
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////// Main Functionality //////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
 void setup()
 {
@@ -441,69 +228,222 @@ void setup()
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
 
-  //Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
+  // Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
     Serial.println("Failed to start stepper interrupt");
     while (1) delay(10);
   }
   Serial.println("Initialised Interrupt for Stepper");
 
-  //Set motor acceleration values
+  // Set motor acceleration values
   step1.setAccelerationRad(0);
   step2.setAccelerationRad(0);
 
-  //Enable the stepper motor drivers
+  // Enable the stepper motor drivers
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-  
-  double yawSum = 0;
-  double pitchSum = 0;
-
-  for (int i = 0; i < 500; ++i) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
-
-    delay(10);
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-  pitchCalibration = pitchSum / 500.0;
+  Serial.println("Connected!");
 
-  Serial.print(pitchCalibration);
+  // Start the server
+  server.begin();
+  Serial.println("Server started");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
 
   calculateButterworthCoefficients();
 
-
   // Initialize command timer
   commandTimer = millis();
-
-  xTaskCreate(
-    BalanceCode,    // Function that should be called
-    "Balance",     // Name of the task (for debugging)
-    10000,        // Stack size (bytes)
-    NULL,         // Parameter to pass
-    1,            // Task priority
-    &Balance      // Task handle
-  );
-
-  xTaskCreate(
-    MovementCode,   // Function that should be called
-    "Movement",     // Name of the task (for debugging)
-    10000,        // Stack size (bytes)
-    NULL,         // Parameter to pass
-    1,            // Task priority
-    &Movement     // Task handle
-  );
-
 }
 
 void loop()
 {
-  
+  // Static variables are initialised once and then the value is remembered between subsequent calls to this function
+  static unsigned long printTimer = 0;  // time of the next print
+  static unsigned long loopTimer = 0;   // time of the next control update
+
+  // Flags to track key states
+  static bool moveForwardFlag = false;
+  static bool moveBackwardFlag = false;
+  static bool rotateLeftFlag = false;
+  static bool rotateRightFlag = false;
+
+  // Timers for key release detection
+  static unsigned long forwardKeyReleaseTimer = 0;
+  static unsigned long backwardKeyReleaseTimer = 0;
+  static unsigned long leftKeyReleaseTimer = 0;
+  static unsigned long rightKeyReleaseTimer = 0;
+  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
+
+  // Run the control loop every LOOP_INTERVAL ms
+  if (millis() > loopTimer) {
+    loopTimer += LOOP_INTERVAL;
+
+    // Fetch data from MPU6050
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
+    // pitch = pitchIncrementer.next_value();
+    // Gyro rates (rate of change of tilt) in radians
+    float gyroPitchRate = g.gyro.y; // Pitch rate
+
+    // Apply complementary filter
+    double dt = LOOP_INTERVAL / 1000.0;  // Convert LOOP_INTERVAL to seconds
+    filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
+    previousFilteredAngle = filteredAngle;
+
+    // Check and toggle motors based on tilt angle
+    checkAndToggleMotors();
+
+    if (motorsEnabled) {
+      // Get raw speed readings
+      float rawSpeed1 = step1.getSpeed() / 2000.0;
+      float rawSpeed2 = step2.getSpeed() / 2000.0;
+
+      // Apply exponential moving average
+      emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
+      emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
+
+      // Apply Butterworth low-pass filter
+      float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
+      float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
+
+      // Average the speeds of the two motors 
+      float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
+
+      // Convert speed from steps per second to cm per second
+      float distancePerStep = wheelCircumference / stepsPerRevolution;
+      speedCmPerSecond = averageSpeedSteps * distancePerStep;
+
+      speedCmPerSecond1 = butterSpeed1 * distancePerStep;
+      speedCmPerSecond2 = butterSpeed2 * distancePerStep;
+
+      // Calculate the rotational speed in radians per second
+      rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
+
+      // Outer loop: Speed control
+      speedControlOutput = speedPid.compute(speedCmPerSecond);
+
+      TargetTiltAngle = speedControlOutput * 0.001;
+
+      // Inner loop: Balance control with speed control output as setpoint
+      balancePid.setSetpoint(TargetTiltAngle);
+      balanceControlOutput = balancePid.compute(filteredAngle);
+
+      // Apply dead-band
+      if (abs(balanceControlOutput) < deadBand) {
+        balanceControlOutput = 0;
+      }
+
+      step1.setAccelerationRad(-balanceControlOutput);
+      step2.setAccelerationRad(balanceControlOutput);
+
+      if (balanceControlOutput > 0) {
+        step1.setTargetSpeedRad(-20);
+        step2.setTargetSpeedRad(20);
+      } 
+      if (balanceControlOutput < 0) {
+        step1.setTargetSpeedRad(20);
+        step2.setTargetSpeedRad(-20);
+      }
+    } 
+  }
+
+  // Print updates every PRINT_INTERVAL ms
+  if (millis() > printTimer) {
+    printTimer += PRINT_INTERVAL;
+  }
+
+  WiFiClient client = server.available();
+  if (client) {
+    Serial.println("New Client.");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            sendResponse(client, "ESP32 Robot Control");
+
+            client.println("Use the buttons below to control the robot:");
+            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
+            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
+            client.println("<button onclick=\"fetch('/left')\">Left</button>");
+            client.println("<button onclick=\"fetch('/right')\">Right</button>");
+            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
+            client.println("<p id=\"status\"></p>");
+            client.println("<script>");
+            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
+            client.println("document.querySelectorAll('button').forEach(button => {");
+            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
+            client.println("});");
+            client.println("</script>");
+            client.println("</body></html>");
+
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+
+        if (currentLine.endsWith("GET /forward")) {
+          moveForward(30);
+          sendResponse(client, "Moving Forward");
+          Serial.println("Moving Forward");
+        }
+        if (currentLine.endsWith("GET /backward")) {
+          moveBackward(30);
+          sendResponse(client, "Moving Backward");
+          Serial.println("Moving Backward");
+        }
+        if (currentLine.endsWith("GET /left")) {
+          rotateLeft(5);
+          sendResponse(client, "Turning Left");
+          Serial.println("Turning Left");
+        }
+        if (currentLine.endsWith("GET /right")) {
+          rotateRight(5);
+          sendResponse(client, "Turning Right");
+          Serial.println("Turning Right");
+        }
+        if (currentLine.endsWith("GET /stop")) {
+          stop();
+          sendResponse(client, "Stopped");
+          Serial.println("Stopped");
+        }
+      }
+    }
+    client.stop();
+    Serial.println("Client Disconnected.");
+  }
+}
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Useful Functions ////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
 }
 
 // Functions to move forward, backward, and turn
@@ -513,20 +453,24 @@ void stop() {
 
 void moveForward(double speed) {
   speedPid.setSetpoint(speed);
+  Serial.println("Move Forward function executed");  // Debug statement
 }
 
 void moveBackward(double speed) {
   speedPid.setSetpoint(-speed);
+  Serial.println("Move Backward function executed");  // Debug statement
 }
 
-void turnLeft(double speed) {
+void rotateLeft(double speed) {
   step1.setTargetSpeedRad(-speed);
-  step2.setTargetSpeedRad(speed);
+  step2.setTargetSpeedRad(-speed);
+  Serial.println("Rotate Left function executed");  // Debug statement
 }
 
-void turnRight(double speed) {
+void rotateRight(double speed) {
   step1.setTargetSpeedRad(speed);
-  step2.setTargetSpeedRad(-speed);
+  step2.setTargetSpeedRad(speed);
+  Serial.println("Rotate Right function executed");  // Debug statement
 }
 
 void checkAndToggleMotors() {
@@ -545,4 +489,16 @@ void checkAndToggleMotors() {
       motorsEnabled = true;
     }
   }
+}
+
+void sendResponse(WiFiClient& client, const char* message) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+  client.print("<html><body>");
+  client.print("<h1>");
+  client.print(message);
+  client.print("</h1>");
+  client.println("</body></html>");
+  client.println();
 }
