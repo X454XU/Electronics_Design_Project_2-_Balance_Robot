@@ -19,11 +19,13 @@ private:
     double outputMin; // Minimum output limit
     double outputMax; // Maximum output limit
 
-    double prevInput; // Last input value
+    double prevError; // Last error value
     double integral; // Integral term
     double lastTime; // Last time compute() was called
 
     double sampleTime; // Time interval between calculations
+
+    double lastOutput; // Last output
 };
 
 #endif // PID_H

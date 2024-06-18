@@ -9,3 +9,9 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+1. There is also a plot.py which is used for datavisualization, change the serial_port according to your computer
+
+2. the tuning.py is used for auto-tune but I think it's somehow to stupid not recommended
+
+3. Speed tilt is for testing done on finding the relationship between tilt and speed.

@@ -1,0 +1,175 @@
+Tuning Method
+
+
+Tuning PID values for a system that exhibits steady-state oscillations and becomes unstable, such as balancing a robot similar to an inverted pendulum, can be challenging. Here are steps to tune your PID controller effectively:
+
+### 1. Understanding the PID Components
+- **Proportional (P):** This term determines the reaction to the current error. A higher P gain can cause the system to respond faster but can also lead to increased oscillations.
+- **Integral (I):** This term accounts for the accumulation of past errors. A higher I gain can reduce steady-state error but can introduce lag and lead to instability.
+- **Derivative (D):** This term predicts future error based on its rate of change. A higher D gain can dampen oscillations but too much can cause noise amplification.
+
+### 2. Initial Steps
+- **Start with P-Only Control:**
+  - Set I and D gains to zero.
+  - Increase the P gain until the system oscillates steadily. This is known as the ultimate gain (Ku).
+  - Note the period of oscillation (Tu).
+
+### 3. Apply Ziegler-Nichols Tuning Method
+Once you have Ku and Tu, use the Ziegler-Nichols method to set the initial PID values:
+- **P Controller:**
+  - \( K_p = 0.5 \times K_u \)
+
+- **PI Controller:**
+  - \( K_p = 0.45 \times K_u \)
+  - \( K_i = \frac{K_p}{1.2 \times T_u} \)
+
+- **PID Controller:**
+  - \( K_p = 0.6 \times K_u \)
+  - \( K_i = \frac{2 \times K_p}{T_u} \)
+  - \( K_d = \frac{K_p \times T_u}{8} \)
+
+### 4. Fine-Tuning the Parameters
+- **Reduce Oscillations:**
+  - If oscillations are too high, decrease the P gain slightly.
+  - Increase the D gain to dampen oscillations.
+
+- **Eliminate Steady-State Error:**
+  - Gradually increase the I gain to eliminate steady-state error. Be cautious as too much I can cause the system to become unstable.
+
+### 5. Testing and Adjusting
+- **Incremental Adjustments:**
+  - Make small adjustments to the PID gains and observe the system's response.
+  - Ensure each change is tested for a sufficient period to understand its impact fully.
+
+- **Balance Between Gains:**
+  - If the system responds too sluggishly, increase P gain.
+  - If there is residual steady-state error, increase I gain.
+  - If the system is too noisy or oscillates, increase D gain or slightly reduce P gain.
+
+### 6. Advanced Techniques
+- **PID with Filter:**
+  - Sometimes adding a low-pass filter to the derivative term can help reduce noise without affecting the system's response time too much.
+
+- **Gain Scheduling:**
+  - For systems with varying dynamics, implement gain scheduling where PID parameters change based on the operating conditions.
+
+- **Model-Based Tuning:**
+  - Use a mathematical model of your system to simulate and tune PID parameters in a controlled environment.
+
+### Practical Example for a Balancing Robot:
+```python
+# Example PID values (need adjustments based on actual testing)
+Kp = 1.0
+Ki = 0.5
+Kd = 0.1
+
+# Pseudo code to implement PID control in a balancing robot
+error = setpoint - measured_value
+integral = integral + error * dt
+derivative = (error - previous_error) / dt
+output = Kp * error + Ki * integral + Kd * derivative
+previous_error = error
+
+# Apply the output to the robot's motors
+apply_output_to_motors(output)
+```
+
+### Summary
+- Begin with the Ziegler-Nichols method to get initial PID values.
+- Gradually fine-tune each parameter while observing the system's response.
+- Ensure that each parameter is adjusted incrementally and tested thoroughly.
+- Use advanced techniques like filtering or gain scheduling if needed.
+
+This systematic approach should help you achieve a stable and well-tuned PID controller for your balancing robot.
+
+Inner Loop
+
+Ku = 495
+
+Total time of oscillations
+run 1 = 20.26
+run 2 = 22.55
+run 3 = 19.72
+avg = 20.843
+
+num of oscillations = 20
+Tu = 0.956
+
+Apply Method:
+Round 1:
+Kp = 297 
+Ki = 621.3
+Kd = 35.492
+Slow to respond
+Round 2: 
+Kp = 326.7 (1.1x) 
+Ki = 559.17 (0.9x)
+Kd = 31.942 (0.9x)
+Oscillates with increasing amplitude
+Round 3:
+Kp = 294.03 (0.9x)
+Ki = 503.253 (0.9x)
+Kd = 35.1362 (1.1x)
+Oscillates with increasing amplitude
+Round 4:
+Kp = 264.627 (0.9x)
+Ki = 452.9277 (0.9x)
+Kd = 38.64982 (1.1x)
+Oscillates with increasing amplitude
+Round 5:
+Kp = 211.702 (0.8x)
+Ki = 362.34216 (0.8x)
+Kd = 46.379784 (1.2x)
+Oscillates with increasing amplitude
+Round 7:
+Kp = 169.3616 (0.8x)
+Ki = 181.17108 (0.5x)
+Kd = 69.569676 (1.5x)
+Oscillates with increasing amplitude. More oscillations needed to topple
+Round 8:
+Kp = 152.42544 (0.9x)
+Ki = 90.58554 (0.5x)
+Kd = 76.526644 (1.1x)
+Oscillates a little around centre then quickly speeds up and topples
+Round 9:
+Kp = 137.182896 (0.9x)
+Ki = 72.468432 (0.8x)
+Kd = 91.831973 (1.2x)
+Stays oscillating a around centre for a little while then quickly speeds up and topples
+Round 10:
+Kp = 123.4646064 (0.9x)
+Ki = 36.234216 (0.5x)
+Kd = 110.1983676 (1.2x)
+Oscillates for a while about the centre point then quickly looses stability speeds up and topples
+Round 11:
+Kp = 111.11814576 (0.9x)
+Ki = 18.117108 (0.5x)
+Kd = 132.23804112 (1.2x)
+Lots of little vibrations while balancing, system eventually speeds up and topples
+Round 12:
+Kp = 99.960331184 (0.9x)
+Ki = 16.3053972 (0.9x)
+Kd = 105.7904329 (0.8x)
+A few little vibrations, has small oscillations about center point, if disturbed greatly overcorrects
+Round 13:
+Kp = 89.9642980656 (0.9x)
+Ki = 14.67485748 (0.9x)
+Kd = 95.21138961 (0.9x)
+Few vibrations, small disturbance leads to oscillations of increasing amplitude then toppling
+Round 14:
+Kp = 80.96786825904 (0.9x)
+Ki = 13.207371732 (0.9x)
+Kd = 76.169111688 (0.8x)
+Round 15:
+Kp = 80
+Ki = 15
+Kd = 95
+
+Outer Loop:
+
+
+
+
+
+
+
