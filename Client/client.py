@@ -1,57 +1,68 @@
 import cv2
 import requests
+import threading
 import time
 
-import websocket
 import json
-import threading
 
-import RPi.GPIO as GPIO
-import serial
+#import RPi.GPIO as GPIO
+#import serial
 
 """
 TX (Transmit): GPIO 14 (Physical Pin 8)
 RX (Receive): GPIO 15 (Physical Pin 10)
 """
 
-GPIO.setmode(GPIO.BCM)
-ser = serial.Serial('/dev/ttyS0', 9600)
+speed = 0.0
 
-def on_message(ws, message):
-    try:
-        data = json.loads(message)
-        if 'key' in data:
-            key = data['key']
-            send_uart(key)
-            print(f"Key pressed: {data['key']}")
-        else:
-            print(f"Unexpected message: {data}")
-    except json.JSONDecodeError as e:
-        print(f"Failed to decode JSON: {e}")
+#GPIO.setmode(GPIO.BCM)
+#ser = serial.Serial('/dev/ttyS0', 9600)
 
-def on_error(ws, error):
-    print(f"Error: {error}")
-
-def on_close(ws):
-    print("Connection closed")
-
-def on_open(ws):
-    print("Connection opened")
-    
-def send_uart(key):
+  
+def get_key():
+    response = requests.get(server_key_url)
+    if response.status_code == 200:
+        key = response.json()
+        return key['key']
+'''  
+def send_key(key):
     # Send the received key to UART
     if key in ['w', 'a', 's', 'd']:
         ser.write(key.encode())  # Send the key over UART
         print(f"Sent {key} over UART")
-        
+
+def uart_com():
+    global speed
+    try:
+        while True:
+        send_key(get_key())
+        if ser.in_waiting > 0:
+            # Read a line from the serial port
+            line = ser.readline().decode('utf-8').strip()
+            try:
+                # Convert the line to a float
+                number = float(line)
+                speed = number
+                print(f"Received speed: {number}")
+            except ValueError:
+                print(f"Received non-float data: {line}")
+        else:
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("Exiting...")
+    finally:
+        ser.close()
+
+'''     
 
 
 # Define the URL of the server where the video will be streamed
-server_ip = "192.168.0.102"
+server_ip = "10.191.71.116:5000"
 server_url = "http://" + server_ip + "/stream"
-
+server_key_url = "http://" + server_ip + "/get_key"
+server_speed_url = "http://" + server_ip + "/post_speed"
 # Open a connection to the Raspberry Pi camera
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(2)
 
 if not cap.isOpened():
     print("Error: Could not open camera.")
@@ -67,19 +78,20 @@ def send_frame(frame):
     response = requests.post(server_url, data=img_encoded.tobytes(), headers={'Content-Type': 'image/jpeg'})
     return response
 
-def run_websocket():
-    websocket.enableTrace(True)
-    ws = websocket.WebSocketApp("ws://"+server_ip+":5000/socket.io/?EIO=4&transport=websocket",
-                                on_open=on_open,
-                                on_message=on_message,
-                                on_error=on_error,
-                                on_close=on_close)
-    ws.run_forever()
+def send_speed(speed):
+    data = {'speed':speed}
+    data_json = json.dumps(data)
+    response = requests.post(server_speed_url, json = data_json)
 
 if __name__ == "__main__":
-    ws_thread = threading.Thread(target=run_websocket)
-    ws_thread.start()
+    '''
+    # Create a thread for the UART reading function
+    uart_thread = threading.Thread(target=read_float_from_uart)
+    uart_thread.daemon = True  # Set as a daemon so it will exit when the main program exits
 
+    # Start the UART thread
+    uart_thread.start()
+    '''
     try:
         while True:
             # Capture frame-by-frame
@@ -96,6 +108,7 @@ if __name__ == "__main__":
             # Display the frame locally (optional)
             cv2.imshow('Video Stream', frame)
             
+            print(get_key())
             # Exit the loop when 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -110,5 +123,5 @@ if __name__ == "__main__":
         # Release the camera and close all OpenCV windows
         cap.release()
         cv2.destroyAllWindows()
-        GPIO.cleanup()  # Clean up GPIO settings
-        ser.close()     # Close UART connection
+        #GPIO.cleanup()  # Clean up GPIO settings
+        #ser.close()     # Close UART connection
