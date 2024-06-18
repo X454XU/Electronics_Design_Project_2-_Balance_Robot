@@ -1,8 +1,15 @@
-let currentNumber = 0;
+document.addEventListener('DOMContentLoaded', (event) => {
+    function updateSpeed() {
+        fetch('/get_speed')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('speed').textContent = data.speed;
+                console.log("speed", data.speed);
+            })
+            .catch(error => console.error('Error fetching speed:', error));
+            
+    }
 
-function updateNumber() {
-    currentNumber++;
-    document.getElementById('speed').innerText = currentNumber;
-}
-
-setInterval(updateNumber, 1000); // 每秒更新一次数值
+    // Update the speed every 10 milliseconds
+    setInterval(updateSpeed, 10);
+});
