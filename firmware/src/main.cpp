@@ -13,6 +13,10 @@
 #define STEPPER2_STEP_PIN 14  //Arduino D10
 #define STEPPER_EN 15         //Arduino D12
 
+// The uart pins
+#define RX2 16
+#define TX2 17
+
 // Diagnostic pin for oscilloscope
 #define TOGGLE_PIN  32        //Arduino A4
 
@@ -41,6 +45,8 @@ MPU6050_DATA mpu6050_data;
 
 PID pid(kp, ki, kd, setpoint);
 
+//uart2 port object
+HardwareSerial Serial2(2);
 
 //change these values to tune the PID controller
 double pidOutput;
@@ -60,8 +66,25 @@ bool TimerHandler(void * timerNo)
 	return true;
 }
 
+char listenToUart2() {
+  // Check if data is available on Serial2
+  if (Serial2.available()) {
+    // Read and return the first character
+    return Serial2.read();
+  }
+  // Return a null character if no data is available
+  return '\0';
+}
+void sendFloatToUart2(float value) {
+  // Convert the float to a string and send it via Serial2
+  Serial2.print(value);
+  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
+}
+
 void setup()
-{
+{ 
+  Serial2.begin(9600, SERIAL_8N1, RX2, TX2); 
+
   Serial.begin(115200);
   pinMode(TOGGLE_PIN,OUTPUT);
   mpuHandler.init();
