@@ -5,8 +5,8 @@ import time
 
 import json
 
-#import RPi.GPIO as GPIO
-#import serial
+import RPi.GPIO as GPIO
+import serial
 
 """
 TX (Transmit): GPIO 14 (Physical Pin 8)
@@ -15,8 +15,8 @@ RX (Receive): GPIO 15 (Physical Pin 10)
 
 speed = 0.0
 
-#GPIO.setmode(GPIO.BCM)
-#ser = serial.Serial('/dev/ttyS0', 9600)
+GPIO.setmode(GPIO.BCM)
+ser = serial.Serial('/dev/ttyS0', 9600)
 
   
 def get_key():
@@ -24,7 +24,7 @@ def get_key():
     if response.status_code == 200:
         key = response.json()
         return key['key']
-'''  
+ 
 def send_key(key):
     # Send the received key to UART
     if key in ['w', 'a', 's', 'd']:
@@ -35,25 +35,25 @@ def uart_com():
     global speed
     try:
         while True:
-        send_key(get_key())
-        if ser.in_waiting > 0:
-            # Read a line from the serial port
-            line = ser.readline().decode('utf-8').strip()
-            try:
-                # Convert the line to a float
-                number = float(line)
-                speed = number
-                print(f"Received speed: {number}")
-            except ValueError:
-                print(f"Received non-float data: {line}")
-        else:
-            time.sleep(0.1)
+            send_key(get_key())
+            if ser.in_waiting > 0:
+                # Read a line from the serial port
+                line = ser.readline().decode('utf-8').strip()
+                try:
+                    # Convert the line to a float
+                    number = float(line)
+                    speed = number
+                    print(f"Received speed: {number}")
+                except ValueError:
+                    print(f"Received non-float data: {line}")
+            else:
+                time.sleep(0.1)
     except KeyboardInterrupt:
         print("Exiting...")
     finally:
         ser.close()
 
-'''     
+  
 
 
 # Define the URL of the server where the video will be streamed
@@ -84,14 +84,14 @@ def send_speed(speed):
     response = requests.post(server_speed_url, json = data_json)
 
 if __name__ == "__main__":
-    '''
+    
     # Create a thread for the UART reading function
-    uart_thread = threading.Thread(target=read_float_from_uart)
+    uart_thread = threading.Thread(target=uart_com)
     uart_thread.daemon = True  # Set as a daemon so it will exit when the main program exits
 
     # Start the UART thread
     uart_thread.start()
-    '''
+    
     try:
         while True:
             # Capture frame-by-frame
@@ -123,5 +123,5 @@ if __name__ == "__main__":
         # Release the camera and close all OpenCV windows
         cap.release()
         cv2.destroyAllWindows()
-        #GPIO.cleanup()  # Clean up GPIO settings
-        #ser.close()     # Close UART connection
+        GPIO.cleanup()  # Clean up GPIO settings
+        ser.close()     # Close UART connection
