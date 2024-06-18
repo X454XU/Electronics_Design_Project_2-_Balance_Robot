@@ -10,12 +10,8 @@ in the development cycle.
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
 
-1. This folder contains ArduinoIDE file to easily observe the gyro and acceleration
+1. There is also a plot.py which is used for datavisualization, change the serial_port according to your computer
 
-upload mpu6050.h onto arduino point use .ino file to view it 
+2. the tuning.py is used for auto-tune but I think it's somehow to stupid not recommended
 
-choose band as 115200 in arduino IDE serial monitor before uploading the mpu6050.h
-
-2. There is also a plot.py which is used for datavisualization, change the serial_port according to your computer
-
-3. the tuning.py is used for auto-tune but I think it's somehow to stupid not recommended
+3. Speed tilt is for testing done on finding the relationship between tilt and speed.
