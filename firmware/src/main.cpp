@@ -28,15 +28,15 @@ const int STEPPER_INTERVAL_US = 20;
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
 // PID tuning parameters
-double kp = 1000; // 640
+double kp = 800; // 1000
 double ki = 15; //15
 double kd = 95; //95
 double setpoint = 0; 
 
 // PID tuning parameters for speed control
-double speedKp = 3; 
-double speedKi = 0.35; 
-double speedKd = 0.2;
+double speedKp = 3; //3
+double speedKi = 0.35; //0.35
+double speedKd = 0.2; //0.2
 double speedSetpoint = 0; // Desired speed
 
 int countr;
@@ -53,7 +53,7 @@ const char* password = "";
 const char* host = "your_ip";
 const uint16_t port = 8080;
 
-WiFiServer server(80);  // Create a server on port 80
+// WiFiServer server(80);  // Create a server on port 80
 
 //WebSocketsClient webSocket;
 
@@ -102,7 +102,7 @@ double previousSpeedControlOutput = 0;
 double prevAccel = 0;
 
 // Maybe needs further tuning
-const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
+const double deadBand = 3; // Dead-band threshold for ignoring small angle changes
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -363,19 +363,19 @@ void setup()
   digitalWrite(STEPPER_EN, false);
 
   // Connect to WiFi
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("Connected!");
+  // WiFi.begin(ssid, password);
+  // Serial.print("Connecting to WiFi");
+  // while (WiFi.status() != WL_CONNECTED) {
+  //   delay(500);
+  //   Serial.print(".");
+  // }
+  // Serial.println("Connected!");
 
-  // Start the server
-  server.begin();
-  Serial.println("Server started");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  // // Start the server
+  // server.begin();
+  // Serial.println("Server started");
+  // Serial.print("IP Address: ");
+  // Serial.println(WiFi.localIP());
 
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
@@ -413,19 +413,6 @@ void loop()
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
-
-  // Flags to track key states
-  static bool moveForwardFlag = false;
-  static bool moveBackwardFlag = false;
-  static bool rotateLeftFlag = false;
-  static bool rotateRightFlag = false;
-
-   // Timers for key release detection
-  static unsigned long forwardKeyReleaseTimer = 0;
-  static unsigned long backwardKeyReleaseTimer = 0;
-  static unsigned long leftKeyReleaseTimer = 0;
-  static unsigned long rightKeyReleaseTimer = 0;
-  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
 
   // Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
@@ -483,6 +470,11 @@ void loop()
       balancePid.setSetpoint(TargetTiltAngle);
       balanceControlOutput = balancePid.compute(filteredAngle);
 
+      if(speedSetpoint == 0){
+        if (balanceControlOutput < 0){speedSetpoint += 0.0015;}
+        else if (balanceControlOutput > 0){speedSetpoint -= 0.0015;}
+      }
+
       // Apply dead-band
       if (abs(balanceControlOutput) < deadBand) {
         balanceControlOutput = 0;
@@ -506,73 +498,75 @@ void loop()
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
+    Serial.print("Setpoint");
+    Serial.println(speedSetpoint, 6);
   }
 
-  WiFiClient client = server.available();
-  if (client) {
-    Serial.println("New Client.");
-    String currentLine = "";
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-        if (c == '\n') {
-          if (currentLine.length() == 0) {
-            sendResponse(client, "ESP32 Robot Control");
+  // WiFiClient client = server.available();
+  // if (client) {
+  //   Serial.println("New Client.");
+  //   String currentLine = "";
+  //   while (client.connected()) {
+  //     if (client.available()) {
+  //       char c = client.read();
+  //       Serial.write(c);
+  //       if (c == '\n') {
+  //         if (currentLine.length() == 0) {
+  //           sendResponse(client, "ESP32 Robot Control");
 
-            client.println("Use the buttons below to control the robot:");
-            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
-            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
-            client.println("<button onclick=\"fetch('/left')\">Left</button>");
-            client.println("<button onclick=\"fetch('/right')\">Right</button>");
-            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
-            client.println("<p id=\"status\"></p>");
-            client.println("<script>");
-            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
-            client.println("document.querySelectorAll('button').forEach(button => {");
-            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
-            client.println("});");
-            client.println("</script>");
-            client.println("</body></html>");
+  //           client.println("Use the buttons below to control the robot:");
+  //           client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
+  //           client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
+  //           client.println("<button onclick=\"fetch('/left')\">Left</button>");
+  //           client.println("<button onclick=\"fetch('/right')\">Right</button>");
+  //           client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
+  //           client.println("<p id=\"status\"></p>");
+  //           client.println("<script>");
+  //           client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
+  //           client.println("document.querySelectorAll('button').forEach(button => {");
+  //           client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
+  //           client.println("});");
+  //           client.println("</script>");
+  //           client.println("</body></html>");
 
-            client.println();
-            break;
-          } else {
-            currentLine = "";
-          }
-        } else if (c != '\r') {
-          currentLine += c;
-        }
+  //           client.println();
+  //           break;
+  //         } else {
+  //           currentLine = "";
+  //         }
+  //       } else if (c != '\r') {
+  //         currentLine += c;
+  //       }
 
-        if (currentLine.endsWith("GET /forward")) {
-          moveForward(30);
-          sendResponse(client, "Moving Forward");
-          Serial.println("Moving Forward");
-        }
-        if (currentLine.endsWith("GET /backward")) {
-          moveBackward(30);
-          sendResponse(client, "Moving Backward");
-          Serial.println("Moving Backward");
-        }
-        if (currentLine.endsWith("GET /left")) {
-          rotateLeft(5);
-          sendResponse(client, "Turning Left");
-          Serial.println("Turning Left");
-        }
-        if (currentLine.endsWith("GET /right")) {
-          rotateRight(5);
-          sendResponse(client, "Turning Right");
-          Serial.println("Turning Right");
-        }
-        if (currentLine.endsWith("GET /stop")) {
-          stop();
-          sendResponse(client, "Stopped");
-          Serial.println("Stopped");
-        }
-      }
-    }
-    client.stop();
-    Serial.println("Client Disconnected.");
-  }
+  //       if (currentLine.endsWith("GET /forward")) {
+  //         moveForward(30);
+  //         sendResponse(client, "Moving Forward");
+  //         Serial.println("Moving Forward");
+  //       }
+  //       if (currentLine.endsWith("GET /backward")) {
+  //         moveBackward(30);
+  //         sendResponse(client, "Moving Backward");
+  //         Serial.println("Moving Backward");
+  //       }
+  //       if (currentLine.endsWith("GET /left")) {
+  //         rotateLeft(5);
+  //         sendResponse(client, "Turning Left");
+  //         Serial.println("Turning Left");
+  //       }
+  //       if (currentLine.endsWith("GET /right")) {
+  //         rotateRight(5);
+  //         sendResponse(client, "Turning Right");
+  //         Serial.println("Turning Right");
+  //       }
+  //       if (currentLine.endsWith("GET /stop")) {
+  //         stop();
+  //         sendResponse(client, "Stopped");
+  //         Serial.println("Stopped");
+  //       }
+  //     }
+  //   }
+  //   client.stop();
+  //   Serial.println("Client Disconnected.");
+  // }
 }
 
