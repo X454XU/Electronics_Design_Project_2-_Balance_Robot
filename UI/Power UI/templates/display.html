@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battery Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        p {
+            font-size: 1.2em;
+        }
+        canvas {
+            max-width: 600px;
+            margin: 20px auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Current Battery Data</h1>
+    <p><strong>Timestamp:</strong> <span id="timestamp">{{ data.timestamp }}</span></p>
+    <p><strong>Subsystem 1 Charge Remaining:</strong> <span id="charge_subsystem1">{{ data.charge_subsystem1 }}</span> %</p>
+    <p><strong>Subsystem 2 Power:</strong> <span id="power_subsystem2">{{ data.power_subsystem2 }}</span> W</p>
+    <p><strong>Subsystem 3 Power:</strong> <span id="power_subsystem3">{{ data.power_subsystem3 }}</span> W</p>
+    
+    <canvas id="chartSubsystem2"></canvas>
+    <canvas id="chartSubsystem3"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let chartSubsystem2Ctx = document.getElementById('chartSubsystem2').getContext('2d');
+        let chartSubsystem3Ctx = document.getElementById('chartSubsystem3').getContext('2d');
+
+        let chartSubsystem2 = new Chart(chartSubsystem2Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Subsystem 2 Power (W)',
+                    data: [],
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'second'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        let chartSubsystem3 = new Chart(chartSubsystem3Ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Subsystem 3 Power (W)',
+                    data: [],
+                    borderColor: 'rgba(153, 102, 255, 1)',
+                    borderWidth: 1,
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'second'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        function updateData() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('timestamp').innerText = data.timestamp;
+                    document.getElementById('charge_subsystem1').innerText = data.charge_subsystem1;
+                    document.getElementById('power_subsystem2').innerText = data.power_subsystem2;
+                    document.getElementById('power_subsystem3').innerText = data.power_subsystem3;
+
+                    let time = new Date(data.timestamp * 1000);
+
+                    chartSubsystem2.data.labels.push(time);
+                    chartSubsystem2.data.datasets[0].data.push(data.power_subsystem2);
+                    chartSubsystem2.update();
+
+                    chartSubsystem3.data.labels.push(time);
+                    chartSubsystem3.data.datasets[0].data.push(data.power_subsystem3);
+                    chartSubsystem3.update();
+                })
+                .catch(error => console.error('Error fetching data:', error));
+        }
+
+        setInterval(updateData, 1000); // Update every second
+    </script>
+</body>
+</html>

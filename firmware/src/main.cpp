@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 #include <TimerInterrupt_Generic.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -22,11 +23,11 @@
 
 const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
-const int  STEPPER_INTERVAL_US = 20;
+const int STEPPER_INTERVAL_US = 20;
 
 const int COMMAND_INTERVAL = 5000; // 5 seconds, for testing
 
-//PID tuning parameters
+// PID tuning parameters
 double kp = 1000; // 640
 double ki = 15; //15
 double kd = 95; //95
@@ -52,7 +53,9 @@ const char* password = "";
 const char* host = "your_ip";
 const uint16_t port = 8080;
 
-WebSocketsClient webSocket;
+WiFiServer server(80);  // Create a server on port 80
+
+//WebSocketsClient webSocket;
 
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
@@ -72,12 +75,8 @@ const double alpha = 0.98;
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-// bool impulseApplied = false;
 unsigned long commandTimer = 0;
 int commandIndex = 0;
-
-// double pitchCalibration = 0.0;
-// double yawCalibration = 0.0;
 
 float pitch = 0.0;
 
@@ -105,24 +104,20 @@ double prevAccel = 0;
 // Maybe needs further tuning
 const double deadBand = 0; // Dead-band threshold for ignoring small angle changes
 
-
-// double currentPosition = 0.0;
-// double speed = 0.0; 
-
-//Interrupt Service Routine for motor update
-//Note: ESP32 doesn't support floating point calculations in an ISR
+// Interrupt Service Routine for motor update
+// Note: ESP32 doesn't support floating point calculations in an ISR
 bool timerHandler(void * timerNo)
 {
   static bool toggle = false;
 
-  //Update the stepper motors
+  // Update the stepper motors
   step1.runStepper();
   step2.runStepper();
 
-  //Indicate that the ISR is running
+  // Indicate that the ISR is running
   digitalWrite(TOGGLE_PIN, toggle);
   toggle = !toggle;
-	return true;
+  return true;
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -157,40 +152,54 @@ void turnRight(double speed) {
 //////////////////////////////////////////////////////////////////////
 
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-    switch(type) {
-        case WStype_DISCONNECTED:
-            Serial.println("Disconnected!");
-            break;
-        case WStype_CONNECTED:
-            Serial.println("Connected!");
-            break;
-        case WStype_TEXT:
-            Serial.printf("Text: %s\n", payload);
-            // Handle received text (control commands)
-            if (strcmp((char *)payload, "MOVE_W") == 0) {
-                // move the robot forward
-                moveForward(15);
-            } else if (strcmp((char *)payload, "MOVE_A") == 0) {
-                // move the robot left
-                 turnLeft(5);
-            } else if (strcmp((char *)payload, "MOVE_S") == 0) {
-                // move the robot backward
-                moveBackward(15);
-            } else if (strcmp((char *)payload, "MOVE_D") == 0) {
-                // move the robot right
-                 turnRight(5);
-            } else if (strcmp((char *)payload, "STOP") == 0) {
-                // Code to stop the robot
-                stop();
-            }
-            break;
-    }
-}
+// void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+//     switch(type) {
+//         case WStype_DISCONNECTED:
+//             Serial.println("Disconnected!");
+//             break;
+//         case WStype_CONNECTED:
+//             Serial.println("Connected!");
+//             break;
+//         case WStype_TEXT:
+//             Serial.printf("Text: %s\n", payload);
+//             // Handle received text (control commands)
+//             if (strcmp((char *)payload, "MOVE_W") == 0) {
+//                 // move the robot forward
+//                 moveForward(15);
+//             } else if (strcmp((char *)payload, "MOVE_A") == 0) {
+//                 // move the robot left
+//                  turnLeft(5);
+//             } else if (strcmp((char *)payload, "MOVE_S") == 0) {
+//                 // move the robot backward
+//                 moveBackward(15);
+//             } else if (strcmp((char *)payload, "MOVE_D") == 0) {
+//                 // move the robot right
+//                  turnRight(5);
+//             } else if (strcmp((char *)payload, "STOP") == 0) {
+//                 // Code to stop the robot
+//                 stop();
+//             }
+//             break;
+//     }
+// }
 
-void sendSpeedToServer(float speedCmPerSecond) {
-    String speedMessage = "SPEED_" + String(speedCmPerSecond);
-    webSocket.sendTXT(speedMessage);
+// void sendSpeedToServer(float speedCmPerSecond) {
+//     String speedMessage = "SPEED_" + String(speedCmPerSecond);
+//     webSocket.sendTXT(speedMessage);
+// }
+
+
+
+void sendResponse(WiFiClient& client, const char* message) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+  client.print("<html><body>");
+  client.print("<h1>");
+  client.print(message);
+  client.print("</h1>");
+  client.println("</body></html>");
+  client.println();
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -338,35 +347,35 @@ void setup()
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
 
-  //Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
+  // Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
     Serial.println("Failed to start stepper interrupt");
     while (1) delay(10);
   }
   Serial.println("Initialised Interrupt for Stepper");
 
-  //Set motor acceleration values
+  // Set motor acceleration values
   step1.setAccelerationRad(0);
   step2.setAccelerationRad(0);
 
-  //Enable the stepper motor drivers
+  // Enable the stepper motor drivers
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-  // double yawSum = 0;
-  // double pitchSum = 0;
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected!");
 
-  // for (int i = 0; i < 500; ++i) {
-  //   sensors_event_t a, g, temp;
-  //   mpu.getEvent(&a, &g, &temp);
-
-  //   pitchSum += atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y));
-
-  //   delay(10);
-  // }
-  // pitchCalibration = pitchSum / 500.0;
-
-  // Serial.print(pitchCalibration);
+  // Start the server
+  server.begin();
+  Serial.println("Server started");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
@@ -399,15 +408,26 @@ void setup()
 
 }
 
-
 void loop()
 {
-  //webSocket.listen();
   //Static variables are initialised once and then the value is remembered between subsequent calls to this function
   static unsigned long printTimer = 0;  //time of the next print
   static unsigned long loopTimer = 0;   //time of the next control update
 
-  //Run the control loop every LOOP_INTERVAL ms
+  // Flags to track key states
+  static bool moveForwardFlag = false;
+  static bool moveBackwardFlag = false;
+  static bool rotateLeftFlag = false;
+  static bool rotateRightFlag = false;
+
+   // Timers for key release detection
+  static unsigned long forwardKeyReleaseTimer = 0;
+  static unsigned long backwardKeyReleaseTimer = 0;
+  static unsigned long leftKeyReleaseTimer = 0;
+  static unsigned long rightKeyReleaseTimer = 0;
+  const unsigned long keyReleaseDelay = 10; // Delay to detect key release
+
+  // Run the control loop every LOOP_INTERVAL ms
   if (millis() > loopTimer) {
     loopTimer += LOOP_INTERVAL;
 
@@ -416,7 +436,7 @@ void loop()
     mpu.getEvent(&a, &g, &temp);
 
     pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
-    //pitch = pitchIncrementer.next_value();
+    // pitch = pitchIncrementer.next_value();
     // Gyro rates (rate of change of tilt) in radians
     float gyroPitchRate = g.gyro.y; // Pitch rate
 
@@ -475,16 +495,10 @@ void loop()
         step1.setTargetSpeedRad(-20);
         step2.setTargetSpeedRad(20);
       } 
-      if(balanceControlOutput < 0) {
+      if (balanceControlOutput < 0) {
         step1.setTargetSpeedRad(20);
         step2.setTargetSpeedRad(-20);
       }
-      /*if(setpoint == 0){
-        if(balanceControlOutput < 0){setpoint += 0.0015;
-        Serial.print("hi");}
-        if(balanceControlOutput > 0){setpoint -= 0.0015;}
-      }*/
-
     } 
   }
   
@@ -492,31 +506,73 @@ void loop()
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    Serial.print("Speed: ");
-    Serial.println(speedCmPerSecond, 6);
-    Serial.print("Tilt: ");
-    Serial.println(pitch, 6);
+  }
 
-    if (countr < 20){
-      moveForward(10);
-      countr += 1;
-      if (countr == 20)
-      {
-        Serial.print("Switched: ");
+  WiFiClient client = server.available();
+  if (client) {
+    Serial.println("New Client.");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            sendResponse(client, "ESP32 Robot Control");
+
+            client.println("Use the buttons below to control the robot:");
+            client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
+            client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
+            client.println("<button onclick=\"fetch('/left')\">Left</button>");
+            client.println("<button onclick=\"fetch('/right')\">Right</button>");
+            client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
+            client.println("<p id=\"status\"></p>");
+            client.println("<script>");
+            client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
+            client.println("document.querySelectorAll('button').forEach(button => {");
+            client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
+            client.println("});");
+            client.println("</script>");
+            client.println("</body></html>");
+
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+
+        if (currentLine.endsWith("GET /forward")) {
+          moveForward(30);
+          sendResponse(client, "Moving Forward");
+          Serial.println("Moving Forward");
+        }
+        if (currentLine.endsWith("GET /backward")) {
+          moveBackward(30);
+          sendResponse(client, "Moving Backward");
+          Serial.println("Moving Backward");
+        }
+        if (currentLine.endsWith("GET /left")) {
+          rotateLeft(5);
+          sendResponse(client, "Turning Left");
+          Serial.println("Turning Left");
+        }
+        if (currentLine.endsWith("GET /right")) {
+          rotateRight(5);
+          sendResponse(client, "Turning Right");
+          Serial.println("Turning Right");
+        }
+        if (currentLine.endsWith("GET /stop")) {
+          stop();
+          sendResponse(client, "Stopped");
+          Serial.println("Stopped");
+        }
       }
-      //Serial.print("Moving Forwards: ");
     }
-    else{
-      moveBackward(10);
-      //Serial.print("Moving Backwards: ");
-    }
+    client.stop();
+    Serial.println("Client Disconnected.");
   }
-  /*if(WiFi.status() == WL_CONNECTED){
-    sendSpeedToServer(speedCmPerSecond);
-    webSocket.loop();
-  }
-  */
-
- 
 }
 

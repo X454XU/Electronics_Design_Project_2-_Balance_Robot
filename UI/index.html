@@ -10,8 +10,7 @@
 <body>
     <div class="container">
         <div class="sidebar">
-
-            <div class = "Block">
+            <div class="Block">
                 <div class="camera-section">
                     <div class="camera-output">Camera Output</div>
                     <div class="battery-life">Battery Life</div>
@@ -23,13 +22,11 @@
                     <div class="distance-display">
                         <h5>Distance Traversed</h5> <!--velocity direction wheel can be added later-->
                     </div>
-
                     <div class="function-ribbon">
                         <button>Function 1</button>
                         <button>Function 2</button>
                         <button>Function 3</button>
                     </div>
-
                     <div class="speed-display">
                         <p>
                             Speed: <span id="speed">0</span>
@@ -38,7 +35,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="Block">
                 Control Parameters
                 <div class="control">
@@ -47,7 +43,6 @@
                         <p>I:</p>
                         <p>D:</p>
                     </div>
-    
                     <div class="control-parameters">
                         <p><input type="number" id="number-input" placeholder="set P"></p>
                         <p><input type="number" id="number-input" placeholder="set I"></p>
@@ -55,7 +50,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="wasd-container">
                 <div id="key-w" class="key">W</div>
                 <div class="key-row">
@@ -63,11 +57,35 @@
                     <div id="key-s" class="key">S</div>
                     <div id="key-d" class="key">D</div>
                 </div>
-                <script src="js/wasd.js"></script>
+                <script>
+                    document.addEventListener('keydown', function(event) {
+                        let command = '';
+                        switch(event.key) {
+                            case 'w':
+                                command = 'forward';
+                                break;
+                            case 'a':
+                                command = 'left';
+                                break;
+                            case 's':
+                                command = 'backward';
+                                break;
+                            case 'd':
+                                command = 'right';
+                                break;
+                        }
+                        if (command) {
+                            fetch('/' + command).then(response => {
+                                return response.text();
+                            }).then(data => {
+                                console.log(data);
+                            }).catch(error => {
+                                console.error('Error:', error);
+                            });
+                        }
+                    });
+                </script>
             </div>
-            
-            
-
         </div>
         <div class="main">
             <div class="map-output">2D Map of Mapped Area</div>
