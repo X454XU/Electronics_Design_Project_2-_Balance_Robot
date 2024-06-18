@@ -1,13 +1,32 @@
-from flask import Flask, request, Response, render_template
-from flask_socketio import SocketIO, emit
+from flask import Flask, request, Response, render_template, jsonify
 import cv2
 import numpy as np
-import os
+
 
 app = Flask(__name__)
 
+
 # Global variable to store the latest frame
 latest_frame = None
+keypress_log = []
+speed = 0.0
+
+@app.route('/post_speed', methods = ['POST'])
+def store_speed():
+    global  speed
+    data = request.json.get('speed')
+    if data:
+        speed = data
+        print(speed)
+        # For simplicity, returning the last key pressed
+        return jsonify({'speed': speed})
+    return jsonify({'error': 'No key provided'}), 400
+
+@app.route('/get_speed', methods=['GET'])
+def get_speed():
+    global speed
+    data = {'speed': speed}
+    return jsonify(data)
 
 @app.route('/stream', methods=['POST'])
 def stream():
@@ -30,11 +49,21 @@ def video_feed():
 def home():
     return render_template('index.html')
 
-@socketio.on('keypress')
-def handle_keypress(data):
-    key = data.get('key')
-    if key in ['w', 'a', 's', 'd']:
-        emit('key_update', {'key': key}, broadcast=True)
+@app.route('/log_keypress', methods=['POST'])
+def log_keypress():
+    key = request.json.get('key')
+    if key:
+        keypress_log.append(key)
+        print(keypress_log)
+        # For simplicity, returning the last key pressed
+        return jsonify({'key': key})
+    return jsonify({'error': 'No key provided'}), 400
+
+@app.route('/get_key')
+def send_key():
+    global keypress_log
+    if keypress_log is not None:
+        return jsonify({'key':keypress_log[-1]})
 
 if __name__ == '__main__':
-    app.run(debug=True) #host='127.0.0.1', port=5000
+    app.run(host = '10.191.71.116', port = 5000, debug=True) #host='127.0.0.1', port=5000

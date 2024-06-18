@@ -11,18 +11,6 @@
         <div class="sidebar">
             <div class="Block">
                 <div class="camera-section">
-                    <div class="camera-output">
-                        <h1>Video Stream from Raspberry Pi</h1>
-                        <img id="video" src="" alt="Video Stream">
-                        <script>
-                            function fetchFrame() {
-                                const videoElement = document.getElementById('video');
-                                videoElement.src = '/video_feed?' + new Date().getTime();
-                            }
-                            // Fetch a new frame every 100ms
-                            setInterval(fetchFrame, 100);
-                        </script>
-                    </div>
                     <div class="battery-life">Battery Life</div>
                 </div>
             </div>
@@ -38,9 +26,7 @@
                         <button>Function 3</button>
                     </div>
                     <div class="speed-display">
-                        <p>
-                            Speed: <span id="speed">0</span>
-                        </p>
+                        <p>The current speed is: <span id="speed">Loading...</span></p>
                         <script src="{{ url_for('static', filename='js/speed.js') }}"></script>
                     </div>
                 </div>
@@ -68,10 +54,36 @@
                     <div id="key-d" class="key">D</div>
                 </div>
                 <script src="{{ url_for('static', filename='js/wasd.js') }}"></script>
+                <script>
+                    document.addEventListener('keydown', function(event) {
+                        fetch('/log_keypress', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ key: event.key })
+                        })
+                        .then(response => response.json())
+                        .catch(error => {
+                            console.error('Error:', error);
+                        });
+                    });
+                </script>
             </div>
         </div>
         <div class="main">
-            <div class="map-output">2D Map of Mapped Area</div>
+            <div class="camera-output">
+                <h1>Video Stream from Raspberry Pi</h1>
+                <img id="video" src="" alt="Video Stream">
+                <script>
+                    function fetchFrame() {
+                        const videoElement = document.getElementById('video');
+                        videoElement.src = '/video_feed?' + new Date().getTime();
+                    }
+                    // Fetch a new frame every 100ms
+                    setInterval(fetchFrame, 10);
+                </script>
+            </div>
             <div class="switch-container">
                 <label class="switch">
                     <input type="checkbox" id="toggle-switch">
