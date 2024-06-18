@@ -78,7 +78,8 @@ This repository contains the code and documentation for the Balance Robot projec
    ```
 
 ## Contributors
-- Maximilian Adam Xiaoyang Xu
+- Maximilian Adam
+- Xiaoyang Xu
 - Fedor Dakhnenko
 - Yueming Wang
 - Maxim Kelly
