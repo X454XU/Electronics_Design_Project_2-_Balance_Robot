@@ -21,13 +21,16 @@
 // Diagnostic pin for oscilloscope
 #define TOGGLE_PIN  32        //Arduino A4
 
+// Task handles
+TaskHandle_t Balance;
+TaskHandle_t Communication;
 
 // WiFi credentials
-const char* ssid = "your_SSID";
-const char* password = "your_PASSWORD";
+const char* ssid = "EEE";
+const char* password = "Opklopkl123123@";
 
 // Flask server IP address and port
-const char* serverIP = "10.191.71.116";
+const char* serverIP = "192.68.0.100";
 const uint16_t serverPort = 5000;
 
 const int PRINT_INTERVAL = 500;
@@ -62,11 +65,6 @@ double speedControlOutput;
 double balanceControlOutput;
 double TargetTiltAngle;
 
-//Global objects
-const char* ssid = "";
-const char* password = "";
-const char* host = "your_ip";
-const uint16_t port = 8080;
 
 // WiFiServer server(80);  // Create a server on port 80
 
@@ -84,6 +82,10 @@ MPU6050_DATA mpu6050_data;
 PID balancePid(kp, ki, kd, setpoint);
 PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 PID yawPID(yawKp, yawKi, yawKd, yawSetpoint);
+
+//function prototypes
+void BalanceCode(void * parameter);
+void CommunicationCode(void * parameter);
 
 // Complementary filter constant
 const double alpha = 0.98; 
@@ -265,7 +267,8 @@ void sendSensorData(float speed, float angle) {
       Serial.println(httpResponseCode);
       Serial.println(response);
     } else {
-      Serial.println("Error on sending POST");
+      Serial.println("Error on sending POST: ");
+      Serial.println(httpResponseCode);
     }
     http.end();
   }
@@ -282,7 +285,8 @@ String receiveCommand() {
       Serial.println(response);
       return response;
     } else {
-      Serial.println("Error on sending GET");
+      Serial.println("Error on sending GET: ");
+      Serial.println(httpResponseCode);
     }
     http.end();
   }
@@ -383,8 +387,6 @@ Incrementer pitchIncrementer;
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
-
-
 void setup()
 {
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
@@ -453,146 +455,173 @@ void setup()
 
   countr = 0;
 
+  xTaskCreate(
+    BalanceCode,    // Function that should be called
+    "Balance",     // Name of the task
+    10000,        // Stack size (bytes)
+    NULL,         // Parameter to pass
+    1,            // Task priority
+    &Balance      // Task handle
+  );
+
+  xTaskCreate(
+    CommunicationCode, 
+    "Movement",   
+    10000,        
+    NULL,         
+    1,            
+    &Communication     
+  );
+
 }
 
-double yawError;
 
-void loop()
+void CommunicationCode(void * parameter)
 {
-  //Static variables are initialised once and then the value is remembered between subsequent calls to this function
-  static unsigned long printTimer = 0;  //time of the next print
-  static unsigned long loopTimer = 0;   //time of the next control update
+  for (;;){
+    sendSensorData(speedCmPerSecond, pitch);
+    String command = receiveCommand(); // temporary
+    if (command == "forward") {
+      moveForward(10);
+    } else if (command == "backward") {
+      moveBackward(10);
+    }
+        
+  }
+}
+void BalanceCode(void * parameter)
+{
+  for (;;){
+    //Static variables are initialised once and then the value is remembered between subsequent calls to this function
+    static unsigned long printTimer = 0;  //time of the next print
+    static unsigned long loopTimer = 0;   //time of the next control update
 
-  // Run the control loop every LOOP_INTERVAL ms
-  if (millis() > loopTimer) {
-    loopTimer += LOOP_INTERVAL;
+    // Run the control loop every LOOP_INTERVAL ms
+    if (millis() > loopTimer) {
+      loopTimer += LOOP_INTERVAL;
 
-    // Fetch data from MPU6050
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
+      // Fetch data from MPU6050
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
 
-    float gyroX = g.gyro.x - gyroBiasX;
+      float gyroX = g.gyro.x - gyroBiasX;
 
-    //////////////// YAW ///////////////////////
-    double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
-    
-    filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
-    
-    filteredAngleYaw = normalizeAngle(filteredAngleYaw);
-    
-    previousFilteredAngleYaw = filteredAngleYaw;
-    
-    double yawCorrection = yawPID.compute(filteredAngleYaw);
+      //////////////// YAW ///////////////////////
+      double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
+      
+      filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
+      
+      filteredAngleYaw = normalizeAngle(filteredAngleYaw);
+      
+      previousFilteredAngleYaw = filteredAngleYaw;
+      
+      double yawCorrection = yawPID.compute(filteredAngleYaw);
 
 
-    //////////////// PITCH ///////////////////////
-    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
-    // pitch = pitchIncrementer.next_value();
-    // Gyro rates (rate of change of tilt) in radians
-    float gyroPitchRate = g.gyro.y; // Pitch rate
+      //////////////// PITCH ///////////////////////
+      pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
+      // pitch = pitchIncrementer.next_value();
+      // Gyro rates (rate of change of tilt) in radians
+      float gyroPitchRate = g.gyro.y; // Pitch rate
 
-    // Apply complementary filter
-    filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
-    previousFilteredAngle = filteredAngle;
+      // Apply complementary filter
+      filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
+      previousFilteredAngle = filteredAngle;
 
-    // Check and toggle motors based on tilt angle
-    checkAndToggleMotors();
+      // Check and toggle motors based on tilt angle
+      checkAndToggleMotors();
 
-    if (motorsEnabled) {
-      // Get raw speed readings
-      float rawSpeed1 = step1.getSpeed() / 2000.0;
-      float rawSpeed2 = step2.getSpeed() / 2000.0;
+      if (motorsEnabled) {
+        // Get raw speed readings
+        float rawSpeed1 = step1.getSpeed() / 2000.0;
+        float rawSpeed2 = step2.getSpeed() / 2000.0;
 
-      // Apply exponential moving average
-      emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
-      emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
+        // Apply exponential moving average
+        emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
+        emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
 
-      // Apply Butterworth low-pass filter
-      float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
-      float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
+        // Apply Butterworth low-pass filter
+        float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
+        float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
 
-      // Average the speeds of the two motors 
-      float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
+        // Average the speeds of the two motors 
+        float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
 
-      // Convert speed from steps per second to cm per second
-      float distancePerStep = wheelCircumference / stepsPerRevolution;
-      speedCmPerSecond = averageSpeedSteps * distancePerStep;
+        // Convert speed from steps per second to cm per second
+        float distancePerStep = wheelCircumference / stepsPerRevolution;
+        speedCmPerSecond = averageSpeedSteps * distancePerStep;
 
-      speedCmPerSecond1 = butterSpeed1 * distancePerStep;
-      speedCmPerSecond2 = butterSpeed2 * distancePerStep;
+        speedCmPerSecond1 = butterSpeed1 * distancePerStep;
+        speedCmPerSecond2 = butterSpeed2 * distancePerStep;
 
-      // Calculate the rotational speed in radians per second
-      rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
+        // Calculate the rotational speed in radians per second
+        rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
 
-      // Outer loop: Speed control
-      speedControlOutput = speedPid.compute(speedCmPerSecond);
+        // Outer loop: Speed control
+        speedControlOutput = speedPid.compute(speedCmPerSecond);
 
-      TargetTiltAngle = speedControlOutput * 0.001;
+        TargetTiltAngle = speedControlOutput * 0.001;
 
-      // Inner loop: Balance control with speed control output as setpoint
-      balancePid.setSetpoint(TargetTiltAngle);
-      balanceControlOutput = balancePid.compute(filteredAngle);
+        // Inner loop: Balance control with speed control output as setpoint
+        balancePid.setSetpoint(TargetTiltAngle);
+        balanceControlOutput = balancePid.compute(filteredAngle);
 
-      // Apply dead-band
-      if (abs(balanceControlOutput) < deadBand) {
-        balanceControlOutput = 0;
-      }
+        // Apply dead-band
+        if (abs(balanceControlOutput) < deadBand) {
+          balanceControlOutput = 0;
+        }
 
-      step1.setAccelerationRad(-balanceControlOutput - yawCorrection);
-      step2.setAccelerationRad(balanceControlOutput - yawCorrection);
+        step1.setAccelerationRad(-balanceControlOutput - yawCorrection);
+        step2.setAccelerationRad(balanceControlOutput - yawCorrection);
 
-      if (balanceControlOutput > 0) {
-        step1.setTargetSpeedRad(-20);
-        step2.setTargetSpeedRad(20);
+        if (balanceControlOutput > 0) {
+          step1.setTargetSpeedRad(-20);
+          step2.setTargetSpeedRad(20);
+        } 
+        if (balanceControlOutput < 0) {
+          step1.setTargetSpeedRad(20);
+          step2.setTargetSpeedRad(-20);
+        }
+        if(countr > 1000){
+          resetSteppers();
+          countr = 0;
+        }
+        countr += 1;
+        
+
+        // TEST
+        //  if (millis() > 10000 && millis() < 20000){
+        //   Serial.print("Left");
+        //   turnLeft(0.003);
+        //  }
+        //  else if(millis() > 20000 && millis() < 30000){
+        //   //  Serial.print("Turning right");
+        //   Serial.print("Right");
+        //   turnRight(0.003);
+        //  }
+        //  else if (millis() > 30000 && millis() < 30010){
+        //   Serial.print("Forward");
+        //   moveForward(10);
+        //  }
+        //  else if (millis() > 40000 && millis() < 40010){
+        //   Serial.print("Backward");
+        //   moveBackward(10);
+        //  }
+
       } 
-      if (balanceControlOutput < 0) {
-        step1.setTargetSpeedRad(20);
-        step2.setTargetSpeedRad(-20);
-      }
-      if(countr > 1000){
-        resetSteppers();
-        countr = 0;
-      }
-      countr += 1;
+    }
+    
 
-      sendSensorData(speedCmPerSecond);
-  
-      String command = receiveCommand(); // temporary
-      if (command == "forward") {
-        moveForward(10);
-      } else if (command == "backward") {
-        moveBackward(10);
-      }
-
-      // TEST
-      //  if (millis() > 10000 && millis() < 20000){
-      //   Serial.print("Left");
-      //   turnLeft(0.003);
-      //  }
-      //  else if(millis() > 20000 && millis() < 30000){
-      //   //  Serial.print("Turning right");
-      //   Serial.print("Right");
-      //   turnRight(0.003);
-      //  }
-      //  else if (millis() > 30000 && millis() < 30010){
-      //   Serial.print("Forward");
-      //   moveForward(10);
-      //  }
-      //  else if (millis() > 40000 && millis() < 40010){
-      //   Serial.print("Backward");
-      //   moveBackward(10);
-      //  }
-
-    } 
+    // Print updates every PRINT_INTERVAL ms
+    if (millis() > printTimer) {
+      printTimer += PRINT_INTERVAL;
+      Serial.print(" Yaw : ");
+      Serial.println(filteredAngleYaw, 6);
+    }
   }
-  
+}
 
-  // Print updates every PRINT_INTERVAL ms
-  if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    Serial.print(" Yaw Setpoint: ");
-    Serial.println(yawSetpoint, 6);
-  }
+void loop(){
 
 }
 
