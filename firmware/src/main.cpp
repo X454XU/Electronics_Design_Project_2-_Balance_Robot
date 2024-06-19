@@ -230,11 +230,15 @@ void stop() {
 
 void moveForward(double speed) {
   speedPid.setSetpoint(-speed);
+  isTurning = false;
+  turnVal = 0;
   
 }
 
 void moveBackward(double speed) {
   speedPid.setSetpoint(speed);
+  isTurning = false;
+  turnVal = 0;
 }
 
 void turnLeft(double turnSpeed) {
@@ -519,9 +523,8 @@ void CommunicationCode(void * parameter)
     else if (command == "right") {
       turnRight(1);
     }
-    else if (command == "idle") {
+    else if (command == "idle" && setpoint != 0) {
       stop();
-      turnVal = 0;
     }
         
   }
