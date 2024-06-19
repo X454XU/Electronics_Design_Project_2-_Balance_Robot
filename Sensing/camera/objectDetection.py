@@ -14,11 +14,23 @@ def goStraight():
 def turnRight():
     print("right")
 
+def Stop():
+    print("stop")
+
+# Define the TCP URL from the Raspberry Pi
+tcp_url = 'tcp://192.168.43.39:8554'
+
+# Open a connection to the TCP stream
+cam = cv2.VideoCapture(tcp_url)
+
+if not cam.isOpened():
+    print("Error: Could not open video stream")
+    exit()
 
 
 
 #2 for droidcam, 0 for innate webcam
-cam = cv2.VideoCapture(2)
+#cam = cv2.VideoCapture(2)
 
 
 cv2.namedWindow('image')
@@ -52,9 +64,16 @@ hMin = sMin = vMin = hMax = sMax = vMax = 0
 phMin = psMin = pvMin = phMax = psMax = pvMax = 0
 morph_k = 0
 
+left = False
+right = False
+straight = False
+
 
 while (True):
     ret, image = cam.read()
+    #image = cv2.imread("test2.png")
+    #image = cv2.resize(image, (0, 0), fx=0.5, fy=0.5)
+    #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     if ret:
         # the 'q' button is set as the
         # quitting button you may use any
@@ -106,12 +125,17 @@ while (True):
 
             cv2.line(image, (w//3, 0), (w//3, h), (0, 0, 255), 1)
             cv2.line(image, (2 * w // 3, 0), (2 * w // 3, h), (0, 0, 255), 1)
+
             if (int(cx) < w//3):
                 turnLeft()
-            elif (int(cx) < w//3 * 2):
-                goStraight()
-            else:
+            elif (int(cx) > w//3 * 2):
                 turnRight()
+            else:
+                if (right or left):
+                    Stop()
+                else:
+                    goStraight()
+
 
 
 
@@ -122,7 +146,6 @@ while (True):
         cv2.imshow("hsv", hsv)
         cv2.imshow("mask", mask)
         cv2.imshow("open", m_open)
-
 
 # After the loop release the cap object
 cam.release()
