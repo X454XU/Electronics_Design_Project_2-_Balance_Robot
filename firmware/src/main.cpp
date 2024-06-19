@@ -7,8 +7,8 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
-#include <WebSocketsClient.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 
 
 // The Stepper pins
@@ -18,12 +18,17 @@
 #define STEPPER2_STEP_PIN 14  //Arduino D10
 #define STEPPER_EN 15         //Arduino D12
 
-// The uart pins
-#define RX2 16
-#define TX2 17
-
 // Diagnostic pin for oscilloscope
 #define TOGGLE_PIN  32        //Arduino A4
+
+
+// WiFi credentials
+const char* ssid = "your_SSID";
+const char* password = "your_PASSWORD";
+
+// Flask server IP address and port
+const char* serverIP = "10.191.71.116";
+const uint16_t serverPort = 5000;
 
 const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
@@ -124,8 +129,6 @@ double prevAccel = 0;
 // Maybe needs further tuning
 const double deadBand = 7; // Dead-band threshold for ignoring small angle changes
 
-//uart2 port object
-HardwareSerial Serial2(2);
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -240,70 +243,52 @@ void turnRight(double heading) {
 //////////////////////// Communication ///////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
-char listenToUart2() {
-  // Check if data is available on Serial2
-  if (Serial2.available()) {
-    // Read and return the first character
-    return Serial2.read();
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-  // Return a null character if no data is available
-  return '\0';
-}
-void sendFloatToUart2(float value) {
-  // Convert the float to a string and send it via Serial2
-  Serial2.print(value);
-  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
+  Serial.println("Connected to WiFi");
 }
 
-// void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-//     switch(type) {
-//         case WStype_DISCONNECTED:
-//             Serial.println("Disconnected!");
-//             break;
-//         case WStype_CONNECTED:
-//             Serial.println("Connected!");
-//             break;
-//         case WStype_TEXT:
-//             Serial.printf("Text: %s\n", payload);
-//             // Handle received text (control commands)
-//             if (strcmp((char *)payload, "MOVE_W") == 0) {
-//                 // move the robot forward
-//                 moveForward(15);
-//             } else if (strcmp((char *)payload, "MOVE_A") == 0) {
-//                 // move the robot left
-//                  turnLeft(5);
-//             } else if (strcmp((char *)payload, "MOVE_S") == 0) {
-//                 // move the robot backward
-//                 moveBackward(15);
-//             } else if (strcmp((char *)payload, "MOVE_D") == 0) {
-//                 // move the robot right
-//                  turnRight(5);
-//             } else if (strcmp((char *)payload, "STOP") == 0) {
-//                 // Code to stop the robot
-//                 stop();
-//             }
-//             break;
-//     }
-// }
+void sendSensorData(float speed, float angle) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(String("http://") + serverIP + ":" + serverPort + "/post_speed");
+    http.addHeader("Content-Type", "application/json");
+    String payload = "{\"speed\":" + String(speed) + ", \"angle\":" + String(angle) + "}";
+    int httpResponseCode = http.POST(payload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+    } else {
+      Serial.println("Error on sending POST");
+    }
+    http.end();
+  }
+}
 
-// void sendSpeedToServer(float speedCmPerSecond) {
-//     String speedMessage = "SPEED_" + String(speedCmPerSecond);
-//     webSocket.sendTXT(speedMessage);
-// }
+String receiveCommand() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(String("http://") + serverIP + ":" + serverPort + "/command");
+    int httpResponseCode = http.GET();
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+      return response;
+    } else {
+      Serial.println("Error on sending GET");
+    }
+    http.end();
+  }
+  return "";
+}
 
-
-
-// void sendResponse(WiFiClient& client, const char* message) {
-//   client.println("HTTP/1.1 200 OK");
-//   client.println("Content-type:text/html");
-//   client.println();
-//   client.print("<html><body>");
-//   client.print("<h1>");
-//   client.print(message);
-//   client.print("</h1>");
-//   client.println("</body></html>");
-//   client.println();
-// }
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -402,9 +387,10 @@ Incrementer pitchIncrementer;
 
 void setup()
 {
-  Serial2.begin(9600, SERIAL_8N1, RX2, TX2); 
-
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
+  connectToWiFi();
+
+
   Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
@@ -460,27 +446,6 @@ void setup()
   calculateButterworthCoefficients();
 
   yawPID.isYawFn(true);
-
-  /*WiFi.begin(ssid, password);
-
-  int attempts = 0;
-  int maxAttempts = 20; // Try for 20 seconds
-
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
-      delay(1000);
-      Serial.println("Connecting to WiFi...");
-      attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Connected to WiFi");
-      webSocket.begin(host, port, "/"); // Replace with your laptop's IP address
-      webSocket.onEvent(webSocketEvent);
-      Serial.println("WebSocket client started");
-  } else {
-      Serial.println("Failed to connect to WiFi");
-  }
-  */
-  // Initialize command timer
 
   commandTimer = millis();
 
@@ -590,6 +555,15 @@ void loop()
       }
       countr += 1;
 
+      sendSensorData(speedCmPerSecond);
+  
+      String command = receiveCommand(); // temporary
+      if (command == "forward") {
+        moveForward(10);
+      } else if (command == "backward") {
+        moveBackward(10);
+      }
+
       // TEST
       //  if (millis() > 10000 && millis() < 20000){
       //   Serial.print("Left");
@@ -620,71 +594,5 @@ void loop()
     Serial.println(yawSetpoint, 6);
   }
 
-  // WiFiClient client = server.available();
-  // if (client) {
-  //   Serial.println("New Client.");
-  //   String currentLine = "";
-  //   while (client.connected()) {
-  //     if (client.available()) {
-  //       char c = client.read();
-  //       Serial.write(c);
-  //       if (c == '\n') {
-  //         if (currentLine.length() == 0) {
-  //           sendResponse(client, "ESP32 Robot Control");
-
-  //           client.println("Use the buttons below to control the robot:");
-  //           client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
-  //           client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
-  //           client.println("<button onclick=\"fetch('/left')\">Left</button>");
-  //           client.println("<button onclick=\"fetch('/right')\">Right</button>");
-  //           client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
-  //           client.println("<p id=\"status\"></p>");
-  //           client.println("<script>");
-  //           client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
-  //           client.println("document.querySelectorAll('button').forEach(button => {");
-  //           client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
-  //           client.println("});");
-  //           client.println("</script>");
-  //           client.println("</body></html>");
-
-  //           client.println();
-  //           break;
-  //         } else {
-  //           currentLine = "";
-  //         }
-  //       } else if (c != '\r') {
-  //         currentLine += c;
-  //       }
-
-  //       if (currentLine.endsWith("GET /forward")) {
-  //         moveForward(30);
-  //         sendResponse(client, "Moving Forward");
-  //         Serial.println("Moving Forward");
-  //       }
-  //       if (currentLine.endsWith("GET /backward")) {
-  //         moveBackward(30);
-  //         sendResponse(client, "Moving Backward");
-  //         Serial.println("Moving Backward");
-  //       }
-  //       if (currentLine.endsWith("GET /left")) {
-  //         rotateLeft(5);
-  //         sendResponse(client, "Turning Left");
-  //         Serial.println("Turning Left");
-  //       }
-  //       if (currentLine.endsWith("GET /right")) {
-  //         rotateRight(5);
-  //         sendResponse(client, "Turning Right");
-  //         Serial.println("Turning Right");
-  //       }
-  //       if (currentLine.endsWith("GET /stop")) {
-  //         stop();
-  //         sendResponse(client, "Stopped");
-  //         Serial.println("Stopped");
-  //       }
-  //     }
-  //   }
-  //   client.stop();
-  //   Serial.println("Client Disconnected.");
-  // }
 }
 
