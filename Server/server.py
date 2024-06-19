@@ -9,6 +9,8 @@ app = Flask(__name__)
 # Global variable to store the latest frame
 latest_frame = None
 keypress_log = ["w_up"]
+auto_log = ["w_up"]
+auto = 0
 speed = 0.0
 
 @app.route('/post_speed', methods = ['POST'])
@@ -75,22 +77,45 @@ def send_key():
     if keypress_log is not None:
         return jsonify({'key':keypress_log[-1]}), 200
 
+@app.route('/auto', methods=['POST'])
+def log_keypress():
+    auto_command = request.json.get('auto')
+    if auto_command:
+        auto_log.append(auto_command)
+        print(auto_log)
+        # For simplicity, returning the last key pressed
+        return jsonify({'auto': auto_command})
+    return jsonify({'error': 'No key provided'}), 400
+
 @app.route('/command', methods=['GET'])
 def send_command():
-    keypress = keypress_log[-1]
-    if keypress:
+    global auto
+    if auto:
+        command = auto_log[-1]
+    else:
+        command = keypress_log[-1]
+    if command:
         # Process the command (e.g., moveForward, moveBackward, etc.)
-        command = process_command(keypress)
-        return jsonify({'command': command}), 200
+        command_o = process_command(command)
+        return jsonify({'command': command_o}), 200
     return jsonify({'error': 'No command provided'}), 400
 
 @app.route('/command_html', methods=['GET'])
 def send_command_html():
-    keypress = keypress_log[-1]
-    if keypress:
-        # Process the command (e.g., moveForward, moveBackward, etc.)
-        command = process_command(keypress)
-        return jsonify({'command': command}), 200
+    global auto
+    if auto:
+        command = auto_log[-1]
+        if command:
+            # Process the command (e.g., moveForward, moveBackward, etc.)
+            command_o = process_command(command)
+            return jsonify({'command': 'auto: '+ command_o}), 200
+    else:
+        command = keypress_log[-1]
+        if command:
+            # Process the command (e.g., moveForward, moveBackward, etc.)
+            command_o = process_command(command)
+            return jsonify({'command': 'manual: ' + command_o}), 200
+    
     return jsonify({'error': 'No command provided'}), 400
 
 def process_command(keypress):
@@ -113,7 +138,21 @@ def process_command(keypress):
     # Add other commands as needed
     return 'Unknown command'
 
-
+@app.route('/mode', methods = ['POST'])
+def set_mode():
+    global auto
+    mode = request.json.get('mode')
+    if mode == 'auto':
+        auto = 1
+        print(auto)
+        return jsonify({'mode': 'auto'})
+    elif mode == 'manual':
+        auto = 0
+        print(auto)
+        return jsonify({'mode': 'manual'})
+        
+    return jsonify({'error': 'No mode provided'}), 400
+    
 if __name__ == '__main__':
     app.run(host = '127.0.0.1', port = 5000, debug=True) #host='127.0.0.1', port=5000
 
