@@ -1,12 +1,18 @@
 import cv2
 import numpy as np
 import requests
+import json
 import time
 
 def stream(frame):
     _, img_encoded = cv2.imencode('.jpg', frame)
     response = requests.post(stream_url, data=img_encoded.tobytes(), headers={'Content-Type': 'image/jpeg'})
+    
     time.sleep(0.1)
+    return response
+
+def auto(command):
+    response = requests.post(auto_url, json = json.dumps({'auto':command}))
     return response
         
 def nothing(x):
@@ -28,6 +34,7 @@ def stop():
 tcp_url = 'tcp://192.168.43.39:8554'
 server_ip = '127.0.0.1:5000'
 stream_url = 'http://'+server_ip+'/stream'
+auto_url = 'http://'+server_ip+'/auto'
 # Open a connection to the TCP stream
 cam = cv2.VideoCapture(2)
 
