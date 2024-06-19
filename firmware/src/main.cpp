@@ -40,9 +40,9 @@ double speedKd = 0.23; //0.2
 double speedSetpoint = 0; // Desired speed
 
 // PID tuning parameters for Yaw control
-double yawKp = 10; 
-double yawKi = 0; 
-double yawKd = 0; 
+double yawKp = 2.7; // 2.5 
+double yawKi = 0.1; //0.1
+double yawKd = 1.9; // 1.5
 double yawSetpoint = 0.0; 
 
 int countr;
@@ -75,8 +75,6 @@ MPU6050_DATA mpu6050_data;
 PID balancePid(kp, ki, kd, setpoint);
 PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 PID yawPID(yawKp, yawKi, yawKd, yawSetpoint);
-
-yawPID.isYawFn(true);
 
 // Complementary filter constant
 const double alpha = 0.98; 
@@ -138,6 +136,68 @@ bool timerHandler(void * timerNo)
   return true;
 }
 
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////// Useful Functions ////////////////////////////
+//////////////////////////////////////////////////////////////////////
+void calibrateSensors() {
+  Serial.println("Calibrating sensors...");
+  float sumGyroX = 0;
+
+  for (int i = 0; i < calibrationSamples; i++) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    sumGyroX += g.gyro.x;
+
+    delay(10); // Adjust delay as needed
+  }
+
+  gyroBiasX = sumGyroX / calibrationSamples;
+
+  Serial.println("Sensor calibration complete.");
+  Serial.print("Gyro Bias X: "); Serial.println(gyroBiasX);
+}
+
+float normalizeAngle(float angle) {
+    // Adjust the angle to be within the range [-π, π)
+    angle = fmod(angle + M_PI, 2 * M_PI);
+    if (angle < 0) {
+        angle += 2 * M_PI;
+    }
+    return angle - M_PI;
+}
+
+
+void resetSteppers() {
+  step1.setTargetSpeedRad(0);
+  step2.setTargetSpeedRad(0);
+  step1.setAccelerationRad(0);
+  step2.setAccelerationRad(0);
+  delay(10);  // Allow some time for the steppers to stop
+}
+
+
+
+void checkAndToggleMotors() {
+  if (abs(filteredAngle) > 0.7) {
+    if (motorsEnabled) {
+      step1.setTargetSpeedRad(0);
+      step2.setTargetSpeedRad(0);
+      step1.setAccelerationRad(0);
+      step2.setAccelerationRad(0);
+      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
+      motorsEnabled = false;
+    }
+  } else {
+    if (!motorsEnabled) {
+      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
+      motorsEnabled = true;
+    }
+  }
+}
+
+
 //////////////////////////////////////////////////////////////////////
 //////////////////////// Movement ////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
@@ -149,20 +209,23 @@ void stop() {
 
 void moveForward(double speed) {
   speedPid.setSetpoint(speed);
+  
 }
 
 void moveBackward(double speed) {
   speedPid.setSetpoint(-speed);
 }
 
-void turnLeft(double speed) {
-  step1.setTargetSpeedRad(-speed);
-  step2.setTargetSpeedRad(-speed);
+void turnLeft(double heading) {
+  yawSetpoint += heading;
+  yawSetpoint = normalizeAngle(yawSetpoint);
+  yawPID.setSetpoint(yawSetpoint);
 }
 
-void turnRight(double speed) {
-  step1.setTargetSpeedRad(speed);
-  step2.setTargetSpeedRad(speed);
+void turnRight(double heading) {
+  yawSetpoint -= heading;
+  yawSetpoint = normalizeAngle(yawSetpoint);
+  yawPID.setSetpoint(yawSetpoint);
 }
 
 
@@ -310,67 +373,6 @@ private:
 Incrementer pitchIncrementer;
 
 
-
-//////////////////////////////////////////////////////////////////////
-//////////////////////// Useful Functions ////////////////////////////
-//////////////////////////////////////////////////////////////////////
-void calibrateSensors() {
-  Serial.println("Calibrating sensors...");
-  float sumGyroX = 0;
-
-  for (int i = 0; i < calibrationSamples; i++) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    sumGyroX += g.gyro.x;
-
-    delay(10); // Adjust delay as needed
-  }
-
-  gyroBiasX = sumGyroX / calibrationSamples;
-
-  Serial.println("Sensor calibration complete.");
-  Serial.print("Gyro Bias X: "); Serial.println(gyroBiasX);
-}
-
-float normalizeAngle(float angle) {
-    // Adjust the angle to be within the range [-π, π)
-    angle = fmod(angle + M_PI, 2 * M_PI);
-    if (angle < 0) {
-        angle += 2 * M_PI;
-    }
-    return angle - M_PI;
-}
-
-
-void resetSteppers() {
-  step1.setTargetSpeedRad(0);
-  step2.setTargetSpeedRad(0);
-  step1.setAccelerationRad(0);
-  step2.setAccelerationRad(0);
-  delay(10);  // Allow some time for the steppers to stop
-}
-
-
-
-void checkAndToggleMotors() {
-  if (abs(filteredAngle) > 0.7) {
-    if (motorsEnabled) {
-      step1.setTargetSpeedRad(0);
-      step2.setTargetSpeedRad(0);
-      step1.setAccelerationRad(0);
-      step2.setAccelerationRad(0);
-      digitalWrite(STEPPER_EN, true); // Disable the stepper motor drivers
-      motorsEnabled = false;
-    }
-  } else {
-    if (!motorsEnabled) {
-      digitalWrite(STEPPER_EN, false); // Enable the stepper motor drivers
-      motorsEnabled = true;
-    }
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
@@ -431,6 +433,8 @@ void setup()
   emaSpeed2 = step2.getSpeed() / 2000.0;
 
   calculateButterworthCoefficients();
+
+  yawPID.isYawFn(true);
 
   /*WiFi.begin(ssid, password);
 
@@ -558,9 +562,28 @@ void loop()
       if(countr > 1000){
         resetSteppers();
         countr = 0;
-        Serial.print("Reset");
       }
       countr += 1;
+
+      // TEST
+      //  if (millis() > 10000 && millis() < 20000){
+      //   Serial.print("Left");
+      //   turnLeft(0.003);
+      //  }
+      //  else if(millis() > 20000 && millis() < 30000){
+      //   //  Serial.print("Turning right");
+      //   Serial.print("Right");
+      //   turnRight(0.003);
+      //  }
+      //  else if (millis() > 30000 && millis() < 30010){
+      //   Serial.print("Forward");
+      //   moveForward(10);
+      //  }
+      //  else if (millis() > 40000 && millis() < 40010){
+      //   Serial.print("Backward");
+      //   moveBackward(10);
+      //  }
+
     } 
   }
   
@@ -568,10 +591,8 @@ void loop()
   // Print updates every PRINT_INTERVAL ms
   if (millis() > printTimer) {
     printTimer += PRINT_INTERVAL;
-    Serial.print(" Filtered Yaw: ");
-    Serial.println(filteredAngleYaw, 6);
-    Serial.print(" balanceControlOutput : ");
-    Serial.println(balanceControlOutput, 6);
+    Serial.print(" Yaw Setpoint: ");
+    Serial.println(yawSetpoint, 6);
   }
 
   // WiFiClient client = server.available();
