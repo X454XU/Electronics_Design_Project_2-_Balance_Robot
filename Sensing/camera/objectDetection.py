@@ -19,16 +19,16 @@ def nothing(x):
     pass
 
 def turnLeft():
-    print("left")
+    auto("a")
 
 def goStraight():
-    print("straight")
+    auto("w")
 
 def turnRight():
-    print("right")
+    auto("d")
 
 def stop():
-    print("stop")
+    auto("idle")
 
 # Define the TCP URL from the Raspberry Pi
 tcp_url = 'tcp://192.168.43.39:8554'
