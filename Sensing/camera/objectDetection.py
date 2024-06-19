@@ -1,7 +1,14 @@
 import cv2
 import numpy as np
+import requests
 import time
 
+def stream(frame):
+    _, img_encoded = cv2.imencode('.jpg', frame)
+    response = requests.post(stream_url, data=img_encoded.tobytes(), headers={'Content-Type': 'image/jpeg'})
+    time.sleep(0.1)
+    return response
+        
 def nothing(x):
     pass
 
@@ -19,9 +26,10 @@ def stop():
 
 # Define the TCP URL from the Raspberry Pi
 tcp_url = 'tcp://192.168.43.39:8554'
-
+server_ip = '127.0.0.1:5000'
+stream_url = 'http://'+server_ip+'/stream'
 # Open a connection to the TCP stream
-cam = cv2.VideoCapture(tcp_url)
+cam = cv2.VideoCapture(2)
 
 if not cam.isOpened():
     print("Error: Could not open video stream")
@@ -146,6 +154,8 @@ while (True):
         #cv2.imshow("hsv", hsv)
         cv2.imshow("mask", mask)
         cv2.imshow("open", m_open)
+        
+        stream(image)
 
 # After the loop release the cap object
 cam.release()
