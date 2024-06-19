@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 # Global variable to store the latest frame
 latest_frame = None
-keypress_log = ["w"]
+keypress_log = ["w_up"]
 speed = 0.0
 
 @app.route('/post_speed', methods = ['POST'])
@@ -73,15 +73,24 @@ def log_keyrelease():
 def send_key():
     global keypress_log
     if keypress_log is not None:
-        return jsonify({'key':keypress_log[-1]})
+        return jsonify({'key':keypress_log[-1]}), 200
 
 @app.route('/command', methods=['GET'])
-def receive_command():
+def send_command():
     keypress = keypress_log[-1]
     if keypress:
         # Process the command (e.g., moveForward, moveBackward, etc.)
         command = process_command(keypress)
-        return jsonify({'command': command})
+        return jsonify({'command': command}), 200
+    return jsonify({'error': 'No command provided'}), 400
+
+@app.route('/command_html', methods=['GET'])
+def send_command_html():
+    keypress = keypress_log[-1]
+    if keypress:
+        # Process the command (e.g., moveForward, moveBackward, etc.)
+        command = process_command(keypress)
+        return jsonify({'command': command}), 200
     return jsonify({'error': 'No command provided'}), 400
 
 def process_command(keypress):
@@ -106,5 +115,5 @@ def process_command(keypress):
 
 
 if __name__ == '__main__':
-    app.run(host = '172.20.10.10', port = 5000, debug=True) #host='127.0.0.1', port=5000
+    app.run(host = '192.168.0.101', port = 5000, debug=True) #host='127.0.0.1', port=5000
 
