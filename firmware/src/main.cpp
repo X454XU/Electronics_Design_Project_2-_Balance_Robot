@@ -99,6 +99,10 @@ double previousFilteredAngle = 0.0;
 float filteredAngleYaw = 0.0;
 float previousFilteredAngleYaw = 0.0;
 
+double yawCorrection = 0;
+
+bool isTurning = false;
+
 float gyroBiasX = 0;
 unsigned long lastTime = 0; 
 
@@ -220,6 +224,8 @@ void checkAndToggleMotors() {
 // Functions to move forward, backward, and turn
 void stop() {
   speedPid.setSetpoint(0);
+  isTurning = false;
+  turnVal = 0;
 }
 
 void moveForward(double speed) {
@@ -231,18 +237,21 @@ void moveBackward(double speed) {
   speedPid.setSetpoint(speed);
 }
 
-void turnLeft(double heading) {
+void turnLeft(double turnSpeed) {
   // yawSetpoint += heading;
   // yawSetpoint = normalizeAngle(yawSetpoint);
   // yawPID.setSetpoint(yawSetpoint);
-  turnVal = heading;
+  turnVal = turnSpeed;
+  isTurning = true;
+
 }
 
-void turnRight(double heading) {
+void turnRight(double turnSpeed) {
   // yawSetpoint -= heading;
   // yawSetpoint = normalizeAngle(yawSetpoint);
   // yawPID.setSetpoint(yawSetpoint);
-  turnVal = heading;
+  turnVal = -turnSpeed;
+  isTurning = true;
 }
 
 
@@ -542,9 +551,8 @@ void BalanceCode(void * parameter)
       filteredAngleYaw = normalizeAngle(filteredAngleYaw);
       
       previousFilteredAngleYaw = filteredAngleYaw;
-      
-      double yawCorrection = turnVal;    // yawPID.compute(filteredAngleYaw);
 
+      double turnVal;
 
       //////////////// PITCH ///////////////////////
       pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
@@ -585,6 +593,15 @@ void BalanceCode(void * parameter)
         // Calculate the rotational speed in radians per second
         rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
 
+        // Extra loop: Yaw Control
+        if(!isTurning){ 
+          yawCorrection = yawPID.compute(filteredAngleYaw);
+        }
+        else if(isTurning){
+          yawCorrection = 0;
+          yawPid.setSetpoint(filteredAngleYaw);
+        }
+
         // Outer loop: Speed control
         speedControlOutput = speedPid.compute(speedCmPerSecond);
 
@@ -599,8 +616,8 @@ void BalanceCode(void * parameter)
           balanceControlOutput = 0;
         }
 
-        step1.setAccelerationRad(-balanceControlOutput - yawCorrection);
-        step2.setAccelerationRad(balanceControlOutput - yawCorrection);
+        step1.setAccelerationRad(-balanceControlOutput - yawCorrection - turnVal);
+        step2.setAccelerationRad(balanceControlOutput - yawCorrection - turnVal);
 
         if (balanceControlOutput > 0) {
           step1.setTargetSpeedRad(-20);
