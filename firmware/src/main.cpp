@@ -9,6 +9,7 @@
 #include <chrono> // For time functions
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 
 // The Stepper pins
@@ -30,7 +31,7 @@ const char* ssid = "EEE";
 const char* password = "Opklopkl123123@";
 
 // Flask server IP address and port
-const char* serverIP = "192.68.0.100";
+const char* serverIP = "192.168.0.101";
 const uint16_t serverPort = 5000;
 
 const int PRINT_INTERVAL = 500;
@@ -58,6 +59,8 @@ double yawKd = 1.9; // 1.5
 double yawSetpoint = 0.0; 
 
 int countr;
+
+double turnVal = 0;
 
 double pidOutput;
 double speedPidOutput;
@@ -220,24 +223,26 @@ void stop() {
 }
 
 void moveForward(double speed) {
-  speedPid.setSetpoint(speed);
+  speedPid.setSetpoint(-speed);
   
 }
 
 void moveBackward(double speed) {
-  speedPid.setSetpoint(-speed);
+  speedPid.setSetpoint(speed);
 }
 
 void turnLeft(double heading) {
-  yawSetpoint += heading;
-  yawSetpoint = normalizeAngle(yawSetpoint);
-  yawPID.setSetpoint(yawSetpoint);
+  // yawSetpoint += heading;
+  // yawSetpoint = normalizeAngle(yawSetpoint);
+  // yawPID.setSetpoint(yawSetpoint);
+  turnVal = heading;
 }
 
 void turnRight(double heading) {
-  yawSetpoint -= heading;
-  yawSetpoint = normalizeAngle(yawSetpoint);
-  yawPID.setSetpoint(yawSetpoint);
+  // yawSetpoint -= heading;
+  // yawSetpoint = normalizeAngle(yawSetpoint);
+  // yawPID.setSetpoint(yawSetpoint);
+  turnVal = heading;
 }
 
 
@@ -264,8 +269,6 @@ void sendSensorData(float speed, float angle) {
     int httpResponseCode = http.POST(payload);
     if (httpResponseCode > 0) {
       String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
     } else {
       Serial.println("Error on sending POST: ");
       Serial.println(httpResponseCode);
@@ -281,8 +284,6 @@ String receiveCommand() {
     int httpResponseCode = http.GET();
     if (httpResponseCode > 0) {
       String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
       return response;
     } else {
       Serial.println("Error on sending GET: ");
@@ -291,6 +292,20 @@ String receiveCommand() {
     http.end();
   }
   return "";
+}
+
+String parseCommand(String json) {
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, json);
+
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return "";
+  }
+
+  const char* command = doc["command"];
+  return String(command);
 }
 
 
@@ -480,11 +495,24 @@ void CommunicationCode(void * parameter)
 {
   for (;;){
     sendSensorData(speedCmPerSecond, pitch);
-    String command = receiveCommand(); // temporary
-    if (command == "forward") {
+
+    String jsonResponse = receiveCommand();
+    String command = parseCommand(jsonResponse);
+    Serial.println(command);
+    if (command == "forward" && setpoint != -10) {
       moveForward(10);
-    } else if (command == "backward") {
+    } else if (command == "backward" && setpoint != 10) {
       moveBackward(10);
+    }
+    else if (command == "left") {
+      turnLeft(1);
+    }
+    else if (command == "right") {
+      turnRight(1);
+    }
+    else if (command == "idle") {
+      stop();
+      turnVal = 0;
     }
         
   }
@@ -515,7 +543,7 @@ void BalanceCode(void * parameter)
       
       previousFilteredAngleYaw = filteredAngleYaw;
       
-      double yawCorrection = yawPID.compute(filteredAngleYaw);
+      double yawCorrection = turnVal;    // yawPID.compute(filteredAngleYaw);
 
 
       //////////////// PITCH ///////////////////////
@@ -615,8 +643,8 @@ void BalanceCode(void * parameter)
     // Print updates every PRINT_INTERVAL ms
     if (millis() > printTimer) {
       printTimer += PRINT_INTERVAL;
-      Serial.print(" Yaw : ");
-      Serial.println(filteredAngleYaw, 6);
+      // Serial.print(" Yaw : ");
+      // Serial.println(filteredAngleYaw, 6);
     }
   }
 }
