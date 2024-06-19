@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 # Global variable to store the latest frame
 latest_frame = None
-keypress_log = []
+keypress_log = ["w"]
 speed = 0.0
 
 @app.route('/post_speed', methods = ['POST'])
@@ -59,33 +59,52 @@ def log_keypress():
         return jsonify({'key': key})
     return jsonify({'error': 'No key provided'}), 400
 
+@app.route('/log_keyrelease', methods=['POST'])
+def log_keyrelease():
+    key = request.json.get('key')
+    if key:
+        keypress_log.append(key + "_up")
+        print(keypress_log)
+        # For simplicity, returning the last key pressed
+        return jsonify({'key': key})
+    return jsonify({'error': 'No key provided'}), 400
+
 @app.route('/get_key')
 def send_key():
     global keypress_log
     if keypress_log is not None:
         return jsonify({'key':keypress_log[-1]})
 
-@app.route('/command', methods=['POST'])
+@app.route('/command', methods=['GET'])
 def receive_command():
-    command = request.json.get('command')
-    if command:
+    keypress = keypress_log[-1]
+    if keypress:
         # Process the command (e.g., moveForward, moveBackward, etc.)
-        response = process_command(command)
-        return jsonify({'response': response})
+        command = process_command(keypress)
+        return jsonify({'command': command})
     return jsonify({'error': 'No command provided'}), 400
 
-def process_command(command):
+def process_command(keypress):
     # Implement command processing logic here
-    if command == 'forward':
+    if '_up' in keypress:
         # Move forward logic
-        return 'Moving forward'
-    elif command == 'backward':
+        return 'idle'
+    elif keypress == 'w':
         # Move backward logic
-        return 'Moving backward'
+        return 'forward'
+    elif keypress == 's':
+        # Move backward logic
+        return 'backward'
+    elif keypress == 'a':
+        # Move backward logic
+        return 'left'
+    elif keypress == 'd':
+        # Move backward logic
+        return 'right'
     # Add other commands as needed
     return 'Unknown command'
 
 
 if __name__ == '__main__':
-    app.run(host = '10.191.71.116', port = 5000, debug=True) #host='127.0.0.1', port=5000
+    app.run(host = '172.20.10.10', port = 5000, debug=True) #host='127.0.0.1', port=5000
 
