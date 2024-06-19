@@ -18,7 +18,7 @@
                 Movement
                 <div class="movement">
                     <div class="velocity-wheel">
-                        <h5>Velocity Direction Wheel</h5>
+                        <h5>Connection:</h5>
                     </div>
                     <div class="function-ribbon">
                         <button>Function 1</button>
@@ -92,10 +92,10 @@
                 <script>
                     function fetchFrame() {
                         const videoElement = document.getElementById('video');
-                        //videoElement.src = '/video_feed?' + new Date().getTime();
+                        videoElement.src = '/video_feed?' + new Date().getTime();
                     }
                     // Fetch a new frame every 100ms
-                    setInterval(fetchFrame, 10);
+                    setInterval(fetchFrame, 20);
                 </script>
             </div>
             <div class="switch-container">
@@ -110,7 +110,7 @@
                 <script>
                     document.addEventListener('DOMContentLoaded', (event) => {
                         function updateSpeed() {
-                            fetch('/command')
+                            fetch('/command_html')
                                 .then(response => response.json())
                                 .then(data => {
                                     document.getElementById('command').textContent = data.command;

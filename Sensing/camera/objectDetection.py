@@ -1,19 +1,53 @@
 import cv2
 import numpy as np
+import requests
+import json
+import time
 
+def stream(frame):
+    _, img_encoded = cv2.imencode('.jpg', frame)
+    response = requests.post(stream_url, data=img_encoded.tobytes(), headers={'Content-Type': 'image/jpeg'})
+    
+    time.sleep(0.1)
+    return response
+
+def auto(command):
+    response = requests.post(auto_url, json = json.dumps({'auto':command}))
+    return response
+        
 def nothing(x):
     pass
 
+def turnLeft():
+    print("left")
 
-cam = cv2.VideoCapture(0)
+def goStraight():
+    print("straight")
+
+def turnRight():
+    print("right")
+
+def stop():
+    print("stop")
+
+# Define the TCP URL from the Raspberry Pi
+tcp_url = 'tcp://192.168.43.39:8554'
+server_ip = '127.0.0.1:5000'
+stream_url = 'http://'+server_ip+'/stream'
+auto_url = 'http://'+server_ip+'/auto'
+# Open a connection to the TCP stream
+cam = cv2.VideoCapture(2)
+
+if not cam.isOpened():
+    print("Error: Could not open video stream")
+    exit()
 
 
-detalization = 10
-approximation_coef = 0.0
-morphology_coefficient = 11
+
+#2 for droidcam, 0 for innate webcam
+#cam = cv2.VideoCapture(2)
 
 
-# Create a window
 cv2.namedWindow('image')
 
 # create trackbars for color change
@@ -24,97 +58,115 @@ cv2.createTrackbar('HMax','image',0,179,nothing)
 cv2.createTrackbar('SMax','image',0,255,nothing)
 cv2.createTrackbar('VMax','image',0,255,nothing)
 
-#lower = np.array([17, 71, 139])
-#upper = np.array([40, 182, 255])
+cv2.createTrackbar('morph_k','image',1,10,nothing)
+
+#lower = np.array([0, 20, 160])
+#upper = np.array([25, 255, 255])
+#approxiamtely skin colour
 # Set default value for MIN HSV trackbars.
-cv2.setTrackbarPos('HMin', 'image', 17)
-cv2.setTrackbarPos('SMin', 'image', 71)
-cv2.setTrackbarPos('VMin', 'image', 139)
+cv2.setTrackbarPos('HMin', 'image', 7)
+cv2.setTrackbarPos('SMin', 'image', 15)
+cv2.setTrackbarPos('VMin', 'image', 140)
 # Set default value for MAX HSV trackbars.
-cv2.setTrackbarPos('HMax', 'image', 40)
-cv2.setTrackbarPos('SMax', 'image', 182)
-cv2.setTrackbarPos('VMax', 'image', 255)
+cv2.setTrackbarPos('HMax', 'image', 18)
+cv2.setTrackbarPos('SMax', 'image', 152)
+cv2.setTrackbarPos('VMax', 'image', 241)
+
+cv2.setTrackbarPos('morph_k', 'image', 10)
 
 # Initialize to check if HSV min/max value changes
 hMin = sMin = vMin = hMax = sMax = vMax = 0
 phMin = psMin = pvMin = phMax = psMax = pvMax = 0
+morph_k = 0
+
+left = False
+right = False
+straight = False
 
 
 while (True):
-
-    # Capture the video frame
-    # by frame
     ret, image = cam.read()
-    frame = image
+    #image = cv2.imread("test2.png")
+    #image = cv2.resize(image, (0, 0), fx=0.5, fy=0.5)
+    #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    if ret:
+        # the 'q' button is set as the
+        # quitting button you may use any
+        # desired button of your choice
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    # get current positions of all trackbars
-    hMin = cv2.getTrackbarPos('HMin', 'image')
-    sMin = cv2.getTrackbarPos('SMin', 'image')
-    vMin = cv2.getTrackbarPos('VMin', 'image')
+        # get current positions of all trackbars
+        hMin = cv2.getTrackbarPos('HMin', 'image')
+        sMin = cv2.getTrackbarPos('SMin', 'image')
+        vMin = cv2.getTrackbarPos('VMin', 'image')
 
-    hMax = cv2.getTrackbarPos('HMax', 'image')
-    sMax = cv2.getTrackbarPos('SMax', 'image')
-    vMax = cv2.getTrackbarPos('VMax', 'image')
+        hMax = cv2.getTrackbarPos('HMax', 'image')
+        sMax = cv2.getTrackbarPos('SMax', 'image')
+        vMax = cv2.getTrackbarPos('VMax', 'image')
 
-    # Set minimum and max HSV values to display
-    lower = np.array([hMin, sMin, vMin])
-    upper = np.array([hMax, sMax, vMax])
+        # Set minimum and max HSV values to display
+        lower = np.array([hMin, sMin, vMin])
+        upper = np.array([hMax, sMax, vMax])
 
+        mask = cv2.inRange(hsv, lower, upper)
 
+        #make a binary image from mask
+        ret2, bin = cv2.threshold(mask, 127, 255, 0)
 
-
-    mask = cv2.inRange(hsv, lower, upper)
-
-
-    # convert the grayscale image to binary image
-    ret, thresh = cv2.threshold(mask, 127, 255, 0)
-    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    all_areas = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        all_areas.append(area)
-
-
-    largest_item = sorted(contours, key=cv2.contourArea, reverse=True)[0]
-
-
-    # calculate moments for each contour
-    M = cv2.moments(largest_item)
-
-    # calculate x,y coordinate of center
-    if M["m00"] != 0:
-        cX = int(M["m10"] / M["m00"])
-        cY = int(M["m01"] / M["m00"])
-    else:
-        cX, cY = 0, 0
-    cv2.circle(frame, (cX, cY), 5, (255, 255, 255), -1)
-    cv2.putText(frame, "centroid", (cX - 25, cY - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        #apply open and close morphologies to eliminate inpurities in color detection
+        morph_k = cv2.getTrackbarPos('morph_k', 'image')
+        m_open = cv2.morphologyEx(bin, cv2.MORPH_OPEN, np.ones((morph_k, morph_k), np.uint8))
 
 
-    cv2.drawContours(frame, contours, -1, (0, 255, 0), 3)
+        #find the (second if counting the background) largest connected component
+        connect = cv2.connectedComponentsWithStats(m_open, 4, cv2.CV_32S)
+        stats = connect[2]
+        centroids = connect[3]
 
-    # Display the resulting frame
-    cv2.imshow('initial frame', frame)
-    cv2.imshow("hsv", hsv)
-    cv2.imshow('mask', mask)
+        if (len(stats) > 1):
+            sorted_i = np.argsort(-stats[:, -1])
+            stat = stats[sorted_i[1]]
+            (cx, cy) = centroids[sorted_i[1]]
+            cv2.rectangle(image, (stat[0], stat[1]), (stat[0] + stat[2], stat[1] + stat[3]), (0, 255, 0), 3)
+            cv2.circle(image, (int(cx), int(cy)), 1, (0,255, 0), 3)
+            cv2.putText(image, "following", (stat[0], stat[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
+            cv2.putText(image, "center", (int(cx), int(cy)), cv2.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2)
 
-    filename = 'example 1'
+            #process where to go
+            h, w, channels = image.shape
 
-    if cv2.waitKey(1) & 0xFF == ord('w'):
-        cv2.imwrite(filename + '-initial_picture.png', image)
-        cv2.imwrite(filename + '-hsv.png', hsv)
-        cv2.imwrite(filename + '-mask.png', mask)
+            cv2.line(image, (w//3, 0), (w//3, h), (0, 0, 255), 1)
+            cv2.line(image, (2 * w // 3, 0), (2 * w // 3, h), (0, 0, 255), 1)
 
-    # the 'q' button is set as the
-    # quitting button you may use any
-    # desired button of your choice
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+            if (int(cx) < w//3):
+                turnLeft()
+            elif (int(cx) > w//3 * 2):
+                turnRight()
+            else:
+                if (right or left):
+                    stop()
+                else:
+                    goStraight()
+
+
+
+
+
+
+        #show all images for debug
+        cv2.imshow("image", image)
+        #cv2.imshow("hsv", hsv)
+        cv2.imshow("mask", mask)
+        cv2.imshow("open", m_open)
+        
+        stream(image)
 
 # After the loop release the cap object
-cam .release()
+cam.release()
 # Destroy all the windows
 cv2.destroyAllWindows()
+
+
