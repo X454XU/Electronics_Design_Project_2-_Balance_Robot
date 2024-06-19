@@ -14,7 +14,7 @@ def goStraight():
 def turnRight():
     print("right")
 
-def Stop():
+def stop():
     print("stop")
 
 # Define the TCP URL from the Raspberry Pi
@@ -132,7 +132,7 @@ while (True):
                 turnRight()
             else:
                 if (right or left):
-                    Stop()
+                    stop()
                 else:
                     goStraight()
 
