@@ -28,7 +28,7 @@ def turnRight():
     auto("d")
 
 def stop():
-    auto("idle")
+    auto("i")
 
 # Define the TCP URL from the Raspberry Pi
 tcp_url = 'tcp://192.168.43.39:8554'
@@ -146,7 +146,7 @@ while (True):
             elif (int(cx) > w//3 * 2):
                 turnRight()
             else:
-                if (right or left):
+                if (stat[1] == 0 or stat[1] + stat[3] == h):
                     stop()
                 else:
                     goStraight()
