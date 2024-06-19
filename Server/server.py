@@ -65,5 +65,27 @@ def send_key():
     if keypress_log is not None:
         return jsonify({'key':keypress_log[-1]})
 
+@app.route('/command', methods=['POST'])
+def receive_command():
+    command = request.json.get('command')
+    if command:
+        # Process the command (e.g., moveForward, moveBackward, etc.)
+        response = process_command(command)
+        return jsonify({'response': response})
+    return jsonify({'error': 'No command provided'}), 400
+
+def process_command(command):
+    # Implement command processing logic here
+    if command == 'forward':
+        # Move forward logic
+        return 'Moving forward'
+    elif command == 'backward':
+        # Move backward logic
+        return 'Moving backward'
+    # Add other commands as needed
+    return 'Unknown command'
+
+
 if __name__ == '__main__':
     app.run(host = '10.191.71.116', port = 5000, debug=True) #host='127.0.0.1', port=5000
+
