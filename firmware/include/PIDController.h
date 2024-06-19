@@ -8,6 +8,7 @@ public:
     void setSetpoint(double setpoint);
     void setSampleTime(double sampleTime);
     void setOutputLimits(double min, double max);
+    void isYawFn(bool yn);
     double compute(double input);
 
 private:
@@ -26,6 +27,8 @@ private:
     double sampleTime; // Time interval between calculations
 
     double lastOutput; // Last output
+
+    bool isYaw; // For normalising yaw error
 };
 
 #endif // PID_H
