@@ -18,6 +18,10 @@
 #define STEPPER2_STEP_PIN 14  //Arduino D10
 #define STEPPER_EN 15         //Arduino D12
 
+// The uart pins
+#define RX2 16
+#define TX2 17
+
 // Diagnostic pin for oscilloscope
 #define TOGGLE_PIN  32        //Arduino A4
 
@@ -119,6 +123,9 @@ double prevAccel = 0;
 
 // Maybe needs further tuning
 const double deadBand = 7; // Dead-band threshold for ignoring small angle changes
+
+//uart2 port object
+HardwareSerial Serial2(2);
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -233,6 +240,20 @@ void turnRight(double heading) {
 //////////////////////// Communication ///////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
+char listenToUart2() {
+  // Check if data is available on Serial2
+  if (Serial2.available()) {
+    // Read and return the first character
+    return Serial2.read();
+  }
+  // Return a null character if no data is available
+  return '\0';
+}
+void sendFloatToUart2(float value) {
+  // Convert the float to a string and send it via Serial2
+  Serial2.print(value);
+  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
+}
 
 // void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 //     switch(type) {
@@ -272,17 +293,17 @@ void turnRight(double heading) {
 
 
 
-void sendResponse(WiFiClient& client, const char* message) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type:text/html");
-  client.println();
-  client.print("<html><body>");
-  client.print("<h1>");
-  client.print(message);
-  client.print("</h1>");
-  client.println("</body></html>");
-  client.println();
-}
+// void sendResponse(WiFiClient& client, const char* message) {
+//   client.println("HTTP/1.1 200 OK");
+//   client.println("Content-type:text/html");
+//   client.println();
+//   client.print("<html><body>");
+//   client.print("<h1>");
+//   client.print(message);
+//   client.print("</h1>");
+//   client.println("</body></html>");
+//   client.println();
+// }
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -377,8 +398,12 @@ Incrementer pitchIncrementer;
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
+
+
 void setup()
 {
+  Serial2.begin(9600, SERIAL_8N1, RX2, TX2); 
+
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
   Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);

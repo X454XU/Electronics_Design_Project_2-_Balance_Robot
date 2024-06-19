@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance Robot UI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="Block">
+                <div class="camera-section">
+                    <div class="battery-life">Battery Life</div>
+                </div>
+            </div>
+            <div class="Block">
+                Movement
+                <div class="movement">
+                    <div class="velocity-wheel">
+                        <h5>Velocity Direction Wheel</h5>
+                    </div>
+                    <div class="function-ribbon">
+                        <button>Function 1</button>
+                        <button>Function 2</button>
+                        <button>Function 3</button>
+                    </div>
+                    <div class="speed-display">
+                        <p>The current speed is: <span id="speed">Loading...</span></p>
+                        <script src="{{ url_for('static', filename='js/speed.js') }}"></script>
+                    </div>
+                </div>
+            </div>
+            <div class="Block">
+                Control Parameters
+                <div class="control">
+                    <div class="control-parameters">
+                        <p>P:</p>
+                        <p>I:</p>
+                        <p>D:</p>
+                    </div>
+                    <div class="control-parameters">
+                        <p><input type="number" id="number-input" placeholder="set P"></p>
+                        <p><input type="number" id="number-input" placeholder="set I"></p>
+                        <p><input type="number" id="number-input" placeholder="set D"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="wasd-container">
+                <div id="key-w" class="key">W</div>
+                <div class="key-row">
+                    <div id="key-a" class="key">A</div>
+                    <div id="key-s" class="key">S</div>
+                    <div id="key-d" class="key">D</div>
+                </div>
+                <script src="{{ url_for('static', filename='js/wasd.js') }}"></script>
+                <script>
+                    document.addEventListener('keydown', function(event) {
+                        fetch('/log_keypress', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ key: event.key })
+                        })
+                        .then(response => response.json())
+                        .catch(error => {
+                            console.error('Error:', error);
+                        });
+                    });
+                </script>
+            </div>
+        </div>
+        <div class="main">
+            <div class="camera-output">
+                <h1>Video Stream from Raspberry Pi</h1>
+                <img id="video" src="" alt="Video Stream">
+                <script>
+                    function fetchFrame() {
+                        const videoElement = document.getElementById('video');
+                        videoElement.src = '/video_feed?' + new Date().getTime();
+                    }
+                    // Fetch a new frame every 100ms
+                    setInterval(fetchFrame, 10);
+                </script>
+            </div>
+            <div class="switch-container">
+                <label class="switch">
+                    <input type="checkbox" id="toggle-switch">
+                    <span class="slider"></span>
+                </label>
+                <script src="{{ url_for('static', filename='js/switch.js') }}"></script>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
