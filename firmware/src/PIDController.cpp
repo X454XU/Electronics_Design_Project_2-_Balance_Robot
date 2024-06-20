@@ -50,7 +50,6 @@ void PID::setOutputLimits(double min, double max) {
     this->outputMax = max;
 }
 
-
 // Compute the PID output based on the input
 double PID::compute(double input) {
     double currentTime = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
