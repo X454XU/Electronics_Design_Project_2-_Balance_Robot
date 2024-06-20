@@ -26,11 +26,11 @@ TaskHandle_t Balance;
 TaskHandle_t Communication;
 
 // WiFi credentials
-const char* ssid = "EEE";
-const char* password = "Opklopkl123123@";
+const char* ssid = "fred";
+const char* password = "12345678";
 
 // Flask server IP address and port
-const char* serverIP = "192.168.0.101";
+const char* serverIP = "192.168.43.101";
 const uint16_t serverPort = 5000;
 
 const int PRINT_INTERVAL = 500;
@@ -92,6 +92,7 @@ double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
 bool isTurning = false;
+double yawCorrection = 0;
 
 float gyroBiasX = 0;
 unsigned long lastTime = 0; 
@@ -486,10 +487,10 @@ void CommunicationCode(void * parameter)
     String command = parseCommand(jsonResponse);
     Serial.println(command);
     if (command == "forward" && setpoint != -10) {
-      moveForward(10);
+      moveForward(20);
     } 
     else if (command == "backward" && setpoint != 10) {
-      moveBackward(10);
+      moveBackward(20);
     }
     else if (command == "left" && isTurning == false) {
       turnLeft(0.4);
@@ -497,7 +498,7 @@ void CommunicationCode(void * parameter)
     else if (command == "right" && isTurning == false) {
       turnRight(0.4);
     }
-    else if (command == "idle" && setpoint != 0) {
+    else if (command == "idle") {
       stop();
     }
         
@@ -521,9 +522,9 @@ void BalanceCode(void * parameter)
       //float gyroX = g.gyro.x - (-0.02);
 
       //////////////// YAW ///////////////////////
-      /*double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
+      double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
       
-      filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
+      /*filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
       
       filteredAngleYaw = normalizeAngle(filteredAngleYaw);
       
