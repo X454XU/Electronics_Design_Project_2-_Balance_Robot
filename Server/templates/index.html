@@ -18,7 +18,7 @@
                 Movement
                 <div class="movement">
                     <div class="velocity-wheel">
-                        <h5>Velocity Direction Wheel</h5>
+                        <h5>Connection:</h5>
                     </div>
                     <div class="function-ribbon">
                         <button>Function 1</button>
@@ -68,6 +68,20 @@
                             console.error('Error:', error);
                         });
                     });
+                    document.addEventListener('keyup', function(event) {
+                        fetch('/log_keyrelease', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ key: event.key })
+                        })
+                        .then(response => response.json())
+                        .catch(error => {
+                            console.error('Error:', error);
+                        });
+                    });
+                        
                 </script>
             </div>
         </div>
@@ -81,7 +95,7 @@
                         videoElement.src = '/video_feed?' + new Date().getTime();
                     }
                     // Fetch a new frame every 100ms
-                    setInterval(fetchFrame, 10);
+                    setInterval(fetchFrame, 5);
                 </script>
             </div>
             <div class="switch-container">
@@ -90,6 +104,25 @@
                     <span class="slider"></span>
                 </label>
                 <script src="{{ url_for('static', filename='js/switch.js') }}"></script>
+            </div>
+            <div class="Block">
+                <div id="command"></div>
+                <script>
+                    document.addEventListener('DOMContentLoaded', (event) => {
+                        function updateSpeed() {
+                            fetch('/command_html')
+                                .then(response => response.json())
+                                .then(data => {
+                                    document.getElementById('command').textContent = data.command;
+                                    console.log("command", data.command);
+                                })
+                                .catch(error => console.error('Error fetching speed:', error));
+                                
+                        }
+                        // Update the speed every 10 milliseconds
+                        setInterval(updateSpeed, 10);
+                    });
+                </script>
             </div>
         </div>
     </div>

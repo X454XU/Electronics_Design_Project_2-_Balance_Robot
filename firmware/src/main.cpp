@@ -7,8 +7,8 @@
 #include <mpu6050.h>
 #include <PIDController.h>
 #include <chrono> // For time functions
-#include <WebSocketsClient.h>
-#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 
 // The Stepper pins
@@ -18,12 +18,20 @@
 #define STEPPER2_STEP_PIN 14  //Arduino D10
 #define STEPPER_EN 15         //Arduino D12
 
-// The uart pins
-#define RX2 16
-#define TX2 17
-
 // Diagnostic pin for oscilloscope
 #define TOGGLE_PIN  32        //Arduino A4
+
+// Task handles
+TaskHandle_t Balance;
+TaskHandle_t Communication;
+
+// WiFi credentials
+const char* ssid = "EEE";
+const char* password = "Opklopkl123123@";
+
+// Flask server IP address and port
+const char* serverIP = "192.168.0.101";
+const uint16_t serverPort = 5000;
 
 const int PRINT_INTERVAL = 500;
 const int LOOP_INTERVAL = 10;
@@ -44,12 +52,14 @@ double speedKd = 0.23; //0.2
 double speedSetpoint = 0; // Desired speed
 
 // PID tuning parameters for Yaw control
-double yawKp = 2.7; // 2.5 
-double yawKi = 0.1; //0.1
-double yawKd = 1.9; // 1.5
+double yawKp = 3; // 2.5 
+double yawKi = 0;//0.1; //0.1
+double yawKd = 0;//2.5; // 1.5
 double yawSetpoint = 0.0; 
 
 int countr;
+
+double turnVal = 0;
 
 double pidOutput;
 double speedPidOutput;
@@ -57,15 +67,6 @@ double speedControlOutput;
 double balanceControlOutput;
 double TargetTiltAngle;
 
-//Global objects
-const char* ssid = "";
-const char* password = "";
-const char* host = "your_ip";
-const uint16_t port = 8080;
-
-// WiFiServer server(80);  // Create a server on port 80
-
-//WebSocketsClient webSocket;
 
 ESP32Timer ITimer(3);
 Adafruit_MPU6050 mpu;  //Default pins for I2C are SCL: IO22/Arduino D3, SDA: IO21/Arduino D4
@@ -80,14 +81,17 @@ PID balancePid(kp, ki, kd, setpoint);
 PID speedPid(speedKp, speedKi, speedKd, speedSetpoint);
 PID yawPID(yawKp, yawKi, yawKd, yawSetpoint);
 
+//function prototypes
+void BalanceCode(void * parameter);
+void CommunicationCode(void * parameter);
+
 // Complementary filter constant
 const double alpha = 0.98; 
 
 double filteredAngle = 0.0;
 double previousFilteredAngle = 0.0;
 
-float filteredAngleYaw = 0.0;
-float previousFilteredAngleYaw = 0.0;
+bool isTurning = false;
 
 float gyroBiasX = 0;
 unsigned long lastTime = 0; 
@@ -124,8 +128,6 @@ double prevAccel = 0;
 // Maybe needs further tuning
 const double deadBand = 7; // Dead-band threshold for ignoring small angle changes
 
-//uart2 port object
-HardwareSerial Serial2(2);
 
 // Interrupt Service Routine for motor update
 // Note: ESP32 doesn't support floating point calculations in an ISR
@@ -157,7 +159,7 @@ void calibrateSensors() {
 
     sumGyroX += g.gyro.x;
 
-    delay(10); // Adjust delay as needed
+    //delay(10); // Adjust delay as needed
   }
 
   gyroBiasX = sumGyroX / calibrationSamples;
@@ -212,27 +214,38 @@ void checkAndToggleMotors() {
 // Functions to move forward, backward, and turn
 void stop() {
   speedPid.setSetpoint(0);
+  isTurning = false;
+  turnVal = 0;
 }
 
 void moveForward(double speed) {
-  speedPid.setSetpoint(speed);
+  speedPid.setSetpoint(-speed);
+  isTurning = false;
+  turnVal = 0;
   
 }
 
 void moveBackward(double speed) {
-  speedPid.setSetpoint(-speed);
+  speedPid.setSetpoint(speed);
+  isTurning = false;
+  turnVal = 0;
 }
 
-void turnLeft(double heading) {
-  yawSetpoint += heading;
-  yawSetpoint = normalizeAngle(yawSetpoint);
-  yawPID.setSetpoint(yawSetpoint);
+void turnLeft(double turnSpeed) {
+  // yawSetpoint += heading;
+  // yawSetpoint = normalizeAngle(yawSetpoint);
+  // yawPID.setSetpoint(yawSetpoint);
+  turnVal = turnSpeed;
+  isTurning = true;
+
 }
 
-void turnRight(double heading) {
-  yawSetpoint -= heading;
-  yawSetpoint = normalizeAngle(yawSetpoint);
-  yawPID.setSetpoint(yawSetpoint);
+void turnRight(double turnSpeed) {
+  // yawSetpoint -= heading;
+  // yawSetpoint = normalizeAngle(yawSetpoint);
+  // yawPID.setSetpoint(yawSetpoint);
+  turnVal = -turnSpeed;
+  isTurning = true;
 }
 
 
@@ -240,70 +253,64 @@ void turnRight(double heading) {
 //////////////////////// Communication ///////////////////////////////
 //////////////////////////////////////////////////////////////////////
 
-char listenToUart2() {
-  // Check if data is available on Serial2
-  if (Serial2.available()) {
-    // Read and return the first character
-    return Serial2.read();
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-  // Return a null character if no data is available
-  return '\0';
-}
-void sendFloatToUart2(float value) {
-  // Convert the float to a string and send it via Serial2
-  Serial2.print(value);
-  Serial2.print("\n");  // Send a newline character to indicate the end of the float value
+  Serial.println("Connected to WiFi");
 }
 
-// void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-//     switch(type) {
-//         case WStype_DISCONNECTED:
-//             Serial.println("Disconnected!");
-//             break;
-//         case WStype_CONNECTED:
-//             Serial.println("Connected!");
-//             break;
-//         case WStype_TEXT:
-//             Serial.printf("Text: %s\n", payload);
-//             // Handle received text (control commands)
-//             if (strcmp((char *)payload, "MOVE_W") == 0) {
-//                 // move the robot forward
-//                 moveForward(15);
-//             } else if (strcmp((char *)payload, "MOVE_A") == 0) {
-//                 // move the robot left
-//                  turnLeft(5);
-//             } else if (strcmp((char *)payload, "MOVE_S") == 0) {
-//                 // move the robot backward
-//                 moveBackward(15);
-//             } else if (strcmp((char *)payload, "MOVE_D") == 0) {
-//                 // move the robot right
-//                  turnRight(5);
-//             } else if (strcmp((char *)payload, "STOP") == 0) {
-//                 // Code to stop the robot
-//                 stop();
-//             }
-//             break;
-//     }
-// }
+void sendSensorData(float speed, float angle) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(String("http://") + serverIP + ":" + serverPort + "/post_speed");
+    http.addHeader("Content-Type", "application/json");
+    String payload = "{\"speed\":" + String(speed) + ", \"angle\":" + String(angle) + "}";
+    int httpResponseCode = http.POST(payload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+    } else {
+      Serial.println("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+    http.end();
+  }
+}
 
-// void sendSpeedToServer(float speedCmPerSecond) {
-//     String speedMessage = "SPEED_" + String(speedCmPerSecond);
-//     webSocket.sendTXT(speedMessage);
-// }
+String receiveCommand() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(String("http://") + serverIP + ":" + serverPort + "/command");
+    int httpResponseCode = http.GET();
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      return response;
+    } else {
+      Serial.println("Error on sending GET: ");
+      Serial.println(httpResponseCode);
+    }
+    http.end();
+  }
+  return "";
+}
 
+String parseCommand(String json) {
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, json);
 
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return "";
+  }
 
-// void sendResponse(WiFiClient& client, const char* message) {
-//   client.println("HTTP/1.1 200 OK");
-//   client.println("Content-type:text/html");
-//   client.println();
-//   client.print("<html><body>");
-//   client.print("<h1>");
-//   client.print(message);
-//   client.print("</h1>");
-//   client.println("</body></html>");
-//   client.println();
-// }
+  const char* command = doc["command"];
+  return String(command);
+}
+
 
 ///////////////////////////////////////////////////////////////////////
 ////////////////////////////// Filtering //////////////////////////////
@@ -398,13 +405,12 @@ Incrementer pitchIncrementer;
 ////////////////////////////// Main Functionality //////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
-
-
 void setup()
 {
-  Serial2.begin(9600, SERIAL_8N1, RX2, TX2); 
-
   Serial.begin(115200); // 115200 (kbps or bps?) transmission speed
+  connectToWiFi();
+
+
   Serial.println("Starting setup...");
   pinMode(TOGGLE_PIN, OUTPUT);
   mpuHandler.init();
@@ -421,8 +427,6 @@ void setup()
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
 
-  // Calibrate sensors
-  calibrateSensors();
 
   // Attach motor update ISR to timer to run every STEPPER_INTERVAL_US μs
   if (!ITimer.attachInterruptInterval(STEPPER_INTERVAL_US, timerHandler)) {
@@ -439,21 +443,6 @@ void setup()
   pinMode(STEPPER_EN, OUTPUT);
   digitalWrite(STEPPER_EN, false);
 
-  // Connect to WiFi
-  // WiFi.begin(ssid, password);
-  // Serial.print("Connecting to WiFi");
-  // while (WiFi.status() != WL_CONNECTED) {
-  //   delay(500);
-  //   Serial.print(".");
-  // }
-  // Serial.println("Connected!");
-
-  // // Start the server
-  // server.begin();
-  // Serial.println("Server started");
-  // Serial.print("IP Address: ");
-  // Serial.println(WiFi.localIP());
-
   emaSpeed1 = step1.getSpeed() / 2000.0;
   emaSpeed2 = step2.getSpeed() / 2000.0;
 
@@ -461,230 +450,203 @@ void setup()
 
   yawPID.isYawFn(true);
 
-  /*WiFi.begin(ssid, password);
-
-  int attempts = 0;
-  int maxAttempts = 20; // Try for 20 seconds
-
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
-      delay(1000);
-      Serial.println("Connecting to WiFi...");
-      attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Connected to WiFi");
-      webSocket.begin(host, port, "/"); // Replace with your laptop's IP address
-      webSocket.onEvent(webSocketEvent);
-      Serial.println("WebSocket client started");
-  } else {
-      Serial.println("Failed to connect to WiFi");
-  }
-  */
-  // Initialize command timer
-
   commandTimer = millis();
 
   
 
   countr = 0;
 
+  xTaskCreate(
+    BalanceCode,    // Function that should be called
+    "Balance",     // Name of the task
+    10000,        // Stack size (bytes)
+    NULL,         // Parameter to pass
+    1,            // Task priority
+    &Balance      // Task handle
+  );
+
+  xTaskCreate(
+    CommunicationCode, 
+    "Movement",   
+    10000,        
+    NULL,         
+    1,            
+    &Communication     
+  );
+
 }
 
-double yawError;
 
-void loop()
+void CommunicationCode(void * parameter)
 {
-  //Static variables are initialised once and then the value is remembered between subsequent calls to this function
-  static unsigned long printTimer = 0;  //time of the next print
-  static unsigned long loopTimer = 0;   //time of the next control update
+  for (;;){
+    sendSensorData(speedCmPerSecond, pitch);
 
-  // Run the control loop every LOOP_INTERVAL ms
-  if (millis() > loopTimer) {
-    loopTimer += LOOP_INTERVAL;
-
-    // Fetch data from MPU6050
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    float gyroX = g.gyro.x - gyroBiasX;
-
-    //////////////// YAW ///////////////////////
-    double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
-    
-    filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
-    
-    filteredAngleYaw = normalizeAngle(filteredAngleYaw);
-    
-    previousFilteredAngleYaw = filteredAngleYaw;
-    
-    double yawCorrection = yawPID.compute(filteredAngleYaw);
-
-
-    //////////////// PITCH ///////////////////////
-    pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.08837433;
-    // pitch = pitchIncrementer.next_value();
-    // Gyro rates (rate of change of tilt) in radians
-    float gyroPitchRate = g.gyro.y; // Pitch rate
-
-    // Apply complementary filter
-    filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
-    previousFilteredAngle = filteredAngle;
-
-    // Check and toggle motors based on tilt angle
-    checkAndToggleMotors();
-
-    if (motorsEnabled) {
-      // Get raw speed readings
-      float rawSpeed1 = step1.getSpeed() / 2000.0;
-      float rawSpeed2 = step2.getSpeed() / 2000.0;
-
-      // Apply exponential moving average
-      emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
-      emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
-
-      // Apply Butterworth low-pass filter
-      float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
-      float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
-
-      // Average the speeds of the two motors 
-      float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
-
-      // Convert speed from steps per second to cm per second
-      float distancePerStep = wheelCircumference / stepsPerRevolution;
-      speedCmPerSecond = averageSpeedSteps * distancePerStep;
-
-      speedCmPerSecond1 = butterSpeed1 * distancePerStep;
-      speedCmPerSecond2 = butterSpeed2 * distancePerStep;
-
-      // Calculate the rotational speed in radians per second
-      rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
-
-      // Outer loop: Speed control
-      speedControlOutput = speedPid.compute(speedCmPerSecond);
-
-      TargetTiltAngle = speedControlOutput * 0.001;
-
-      // Inner loop: Balance control with speed control output as setpoint
-      balancePid.setSetpoint(TargetTiltAngle);
-      balanceControlOutput = balancePid.compute(filteredAngle);
-
-      // Apply dead-band
-      if (abs(balanceControlOutput) < deadBand) {
-        balanceControlOutput = 0;
-      }
-
-      step1.setAccelerationRad(-balanceControlOutput - yawCorrection);
-      step2.setAccelerationRad(balanceControlOutput - yawCorrection);
-
-      if (balanceControlOutput > 0) {
-        step1.setTargetSpeedRad(-20);
-        step2.setTargetSpeedRad(20);
-      } 
-      if (balanceControlOutput < 0) {
-        step1.setTargetSpeedRad(20);
-        step2.setTargetSpeedRad(-20);
-      }
-      if(countr > 1000){
-        resetSteppers();
-        countr = 0;
-      }
-      countr += 1;
-
-      // TEST
-      //  if (millis() > 10000 && millis() < 20000){
-      //   Serial.print("Left");
-      //   turnLeft(0.003);
-      //  }
-      //  else if(millis() > 20000 && millis() < 30000){
-      //   //  Serial.print("Turning right");
-      //   Serial.print("Right");
-      //   turnRight(0.003);
-      //  }
-      //  else if (millis() > 30000 && millis() < 30010){
-      //   Serial.print("Forward");
-      //   moveForward(10);
-      //  }
-      //  else if (millis() > 40000 && millis() < 40010){
-      //   Serial.print("Backward");
-      //   moveBackward(10);
-      //  }
-
+    String jsonResponse = receiveCommand();
+    String command = parseCommand(jsonResponse);
+    Serial.println(command);
+    if (command == "forward" && setpoint != -10) {
+      moveForward(10);
     } 
+    else if (command == "backward" && setpoint != 10) {
+      moveBackward(10);
+    }
+    else if (command == "left" && isTurning == false) {
+      turnLeft(0.4);
+    }
+    else if (command == "right" && isTurning == false) {
+      turnRight(0.4);
+    }
+    else if (command == "idle" && setpoint != 0) {
+      stop();
+    }
+        
   }
-  
+}
+void BalanceCode(void * parameter)
+{
+  for (;;){
+    //Static variables are initialised once and then the value is remembered between subsequent calls to this function
+    static unsigned long printTimer = 0;  //time of the next print
+    static unsigned long loopTimer = 0;   //time of the next control update
 
-  // Print updates every PRINT_INTERVAL ms
-  if (millis() > printTimer) {
-    printTimer += PRINT_INTERVAL;
-    Serial.print(" Yaw Setpoint: ");
-    Serial.println(yawSetpoint, 6);
+    // Run the control loop every LOOP_INTERVAL ms
+    if (millis() > loopTimer) {
+      loopTimer += LOOP_INTERVAL;
+
+      // Fetch data from MPU6050
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+
+      //float gyroX = g.gyro.x - (-0.02);
+
+      //////////////// YAW ///////////////////////
+      /*double dt = LOOP_INTERVAL / 1000.0; // Convert LOOP_INTERVAL to seconds
+      
+      filteredAngleYaw = (1 - alpha) * filteredAngleYaw + alpha * (previousFilteredAngleYaw + gyroX * dt);
+      
+      filteredAngleYaw = normalizeAngle(filteredAngleYaw);
+      
+      previousFilteredAngleYaw = filteredAngleYaw;*/
+
+      //////////////// PITCH ///////////////////////
+      pitch = atan2(a.acceleration.z, sqrt(a.acceleration.x * a.acceleration.x + a.acceleration.y * a.acceleration.y)) - 0.061664;
+      // pitch = pitchIncrementer.next_value();
+      // Gyro rates (rate of change of tilt) in radians
+      float gyroPitchRate = g.gyro.y; // Pitch rate
+
+      // Apply complementary filter
+      filteredAngle = (1 - alpha) * pitch + alpha * (previousFilteredAngle + gyroPitchRate * dt);
+      previousFilteredAngle = filteredAngle;
+
+      // Check and toggle motors based on tilt angle
+      checkAndToggleMotors();
+
+      if (motorsEnabled) {
+        // Get raw speed readings
+        float rawSpeed1 = step1.getSpeed() / 2000.0;
+        float rawSpeed2 = step2.getSpeed() / 2000.0;
+
+        // Apply exponential moving average
+        emaSpeed1 = alphaEMA * rawSpeed1 + (1 - alphaEMA) * emaSpeed1;
+        emaSpeed2 = alphaEMA * rawSpeed2 + (1 - alphaEMA) * emaSpeed2;
+
+        // Apply Butterworth low-pass filter
+        float butterSpeed1 = butterworthFilter(x1Butter, y1Butter, emaSpeed1);
+        float butterSpeed2 = butterworthFilter(x2Butter, y2Butter, emaSpeed2);
+
+        // Average the speeds of the two motors 
+        float averageSpeedSteps = (butterSpeed1 - butterSpeed2) / 2.0;
+
+        // Convert speed from steps per second to cm per second
+        float distancePerStep = wheelCircumference / stepsPerRevolution;
+        speedCmPerSecond = averageSpeedSteps * distancePerStep;
+
+        speedCmPerSecond1 = butterSpeed1 * distancePerStep;
+        speedCmPerSecond2 = butterSpeed2 * distancePerStep;
+
+        // Calculate the rotational speed in radians per second
+        rotationalSpeedRadPerSecond = (speedCmPerSecond1 + speedCmPerSecond2) / trackWidth;
+
+        // Extra loop: Yaw Control
+        if(!isTurning){ 
+          yawCorrection = yawPID.compute(rotationalSpeedRadPerSecond);
+        }
+        if(isTurning){
+          yawCorrection = 0;
+        }
+
+        // Outer loop: Speed control
+        speedControlOutput = speedPid.compute(speedCmPerSecond);
+
+        TargetTiltAngle = speedControlOutput * 0.001;
+
+        // Inner loop: Balance control with speed control output as setpoint
+        balancePid.setSetpoint(TargetTiltAngle);
+        balanceControlOutput = balancePid.compute(filteredAngle);
+
+        // Apply dead-band
+        if (abs(balanceControlOutput) < deadBand) {
+          balanceControlOutput = 0;
+        }
+
+        step1.setAccelerationRad(-balanceControlOutput - turnVal + yawCorrection);
+        step2.setAccelerationRad(balanceControlOutput - turnVal + yawCorrection);
+       
+
+        if (balanceControlOutput > 0) {
+          step1.setTargetSpeedRad(-20);
+          step2.setTargetSpeedRad(20);
+        } 
+        if (balanceControlOutput < 0) {
+          step1.setTargetSpeedRad(20);
+          step2.setTargetSpeedRad(-20);
+        }
+        if(countr > 1000){
+          resetSteppers();
+          countr = 0;
+        }
+        countr += 1;
+        
+
+        //TEST
+         /*if (millis() > 10000 && millis() < 20000){
+          Serial.print("Left");
+          turnLeft(0.4);
+         }
+         else if(millis() > 20000 && millis() < 30000){
+          //  Serial.print("Turning right");
+          Serial.print("Right");
+          turnRight(0.5);
+         }
+         else if (millis() > 30000 && millis() < 40000){
+          Serial.print("Forward");
+          moveForward(20);
+         }
+         else if (millis() > 40000 && millis() < 50000){
+          Serial.print("Backward");
+          moveBackward(20);
+         }
+         else if (millis() > 50000){
+          stop();
+         }*/
+
+      } 
+    }
+    
+
+    // Print updates every PRINT_INTERVAL ms
+    /*if (millis() > printTimer) {
+      printTimer += PRINT_INTERVAL;
+      Serial.print(" rotationalSpeedRadPerSecond : ");
+      Serial.println(rotationalSpeedRadPerSecond, 6);
+      Serial.print(" yawVal : ");
+      Serial.println(turnVal, 6);
+    }*/
   }
+}
 
-  // WiFiClient client = server.available();
-  // if (client) {
-  //   Serial.println("New Client.");
-  //   String currentLine = "";
-  //   while (client.connected()) {
-  //     if (client.available()) {
-  //       char c = client.read();
-  //       Serial.write(c);
-  //       if (c == '\n') {
-  //         if (currentLine.length() == 0) {
-  //           sendResponse(client, "ESP32 Robot Control");
+void loop(){
 
-  //           client.println("Use the buttons below to control the robot:");
-  //           client.println("<button onclick=\"fetch('/forward')\">Forward</button>");
-  //           client.println("<button onclick=\"fetch('/backward')\">Backward</button>");
-  //           client.println("<button onclick=\"fetch('/left')\">Left</button>");
-  //           client.println("<button onclick=\"fetch('/right')\">Right</button>");
-  //           client.println("<button onclick=\"fetch('/stop')\">Stop</button>");
-  //           client.println("<p id=\"status\"></p>");
-  //           client.println("<script>");
-  //           client.println("function updateStatus(message) { document.getElementById('status').innerText = message; }");
-  //           client.println("document.querySelectorAll('button').forEach(button => {");
-  //           client.println("button.addEventListener('click', () => updateStatus(button.textContent + ' command sent.'));");
-  //           client.println("});");
-  //           client.println("</script>");
-  //           client.println("</body></html>");
-
-  //           client.println();
-  //           break;
-  //         } else {
-  //           currentLine = "";
-  //         }
-  //       } else if (c != '\r') {
-  //         currentLine += c;
-  //       }
-
-  //       if (currentLine.endsWith("GET /forward")) {
-  //         moveForward(30);
-  //         sendResponse(client, "Moving Forward");
-  //         Serial.println("Moving Forward");
-  //       }
-  //       if (currentLine.endsWith("GET /backward")) {
-  //         moveBackward(30);
-  //         sendResponse(client, "Moving Backward");
-  //         Serial.println("Moving Backward");
-  //       }
-  //       if (currentLine.endsWith("GET /left")) {
-  //         rotateLeft(5);
-  //         sendResponse(client, "Turning Left");
-  //         Serial.println("Turning Left");
-  //       }
-  //       if (currentLine.endsWith("GET /right")) {
-  //         rotateRight(5);
-  //         sendResponse(client, "Turning Right");
-  //         Serial.println("Turning Right");
-  //       }
-  //       if (currentLine.endsWith("GET /stop")) {
-  //         stop();
-  //         sendResponse(client, "Stopped");
-  //         Serial.println("Stopped");
-  //       }
-  //     }
-  //   }
-  //   client.stop();
-  //   Serial.println("Client Disconnected.");
-  // }
 }
 
