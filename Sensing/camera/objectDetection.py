@@ -22,7 +22,7 @@ def nothing(x):
 
 def turnLeft():
     print("a")
-    print(auto("a"))
+    auto("a")
 
 def goStraight():
     print("w")
@@ -36,56 +36,15 @@ def stop():
     print("idle_up")
     auto("idle_up")
 
-# Define the TCP URL from the Raspberry Pi
-tcp_url = 'tcp://192.168.43.39:8554' #http://10.191.71.116:5000/stream
+
+# Define the links for raspberry pi communcation
+# #http://10.191.71.116:5000/stream
 server_ip = '192.168.43.101:5000'
 source_url = 'http://'+server_ip+'/od_video_feed'
 stream_url = 'http://'+server_ip+'/stream'
 auto_url = 'http://'+server_ip+'/auto'
-# Open a connection to the TCP stream
-#cam = cv2.VideoCapture(source_url)
 
-#if not cam.isOpened():
-#    print("Error: Could not open video stream")
-#    exit()
-
-
-
-#2 for droidcam, 0 for innate webcam
-#cam = cv2.VideoCapture(2)
-
-
-cv2.namedWindow('image')
-
-# create trackbars for color change
-cv2.createTrackbar('HMin','image',0,179,nothing) # Hue is from 0-179 for Opencv
-cv2.createTrackbar('SMin','image',0,255,nothing)
-cv2.createTrackbar('VMin','image',0,255,nothing)
-cv2.createTrackbar('HMax','image',0,179,nothing)
-cv2.createTrackbar('SMax','image',0,255,nothing)
-cv2.createTrackbar('VMax','image',0,255,nothing)
-
-cv2.createTrackbar('morph_k','image',1,10,nothing)
-
-#lower = np.array([0, 20, 160])
-#upper = np.array([25, 255, 255])
-#approxiamtely skin colour
-# Set default value for MIN HSV trackbars.
-#cv2.setTrackbarPos('HMin', 'image', 7)
-#cv2.setTrackbarPos('SMin', 'image', 15)
-#cv2.setTrackbarPos('VMin', 'image', 140)
-## Set default value for MAX HSV trackbars.
-#cv2.setTrackbarPos('HMax', 'image', 18)
-#cv2.setTrackbarPos('SMax', 'image', 152)
-#cv2.setTrackbarPos('VMax', 'image', 241)
-#
-#cv2.setTrackbarPos('morph_k', 'image', 10)
-
-# Initialize to check if HSV min/max value changes
-hMin = sMin = vMin = hMax = sMax = vMax = 0
-phMin = psMin = pvMin = phMax = psMax = pvMax = 0
-morph_k = 0
-
+#flags for movement
 left = False
 right = False
 straight = False
@@ -99,30 +58,10 @@ while (True):
         raise Exception(f"Failed to retrieve image from {source_url}, status code: {response.status_code}")
     image_array = np.frombuffer(image_data, np.uint8)
     image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-    #ret, image = cam.read()
-    #image = cv2.imread("test2.png")
-    #image = cv2.resize(image, (0, 0), fx=0.5, fy=0.5)
-    #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    #if ret:
-        # the 'q' button is set as the
-        # quitting button you may use any
-        # desired button of your choice
-        #if cv2.waitKey(1) & 0xFF == ord('q'):
-        #    break
     if image is not None:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
-        # get current positions of all trackbars
-        #hMin = cv2.getTrackbarPos('HMin', 'image')
-        #sMin = cv2.getTrackbarPos('SMin', 'image')
-        #vMin = cv2.getTrackbarPos('VMin', 'image')
-
-        #hMax = cv2.getTrackbarPos('HMax', 'image')
-        #sMax = cv2.getTrackbarPos('SMax', 'image')
-        #vMax = cv2.getTrackbarPos('VMax', 'image')
-
-        # Set minimum and max HSV values to display
+        
         lower = np.array([107, 124, 131])
         upper = np.array([116, 255, 255])
 
@@ -132,7 +71,7 @@ while (True):
         ret2, bin = cv2.threshold(mask, 127, 255, 0)
 
         #apply open and close morphologies to eliminate inpurities in color detection
-        morph_k = cv2.getTrackbarPos('morph_k', 'image')
+        morph_k = 10
         m_open = cv2.morphologyEx(bin, cv2.MORPH_OPEN, np.ones((morph_k, morph_k), np.uint8))
 
 
@@ -167,21 +106,9 @@ while (True):
                     goStraight()
 
 
-
-
-
-
-        #show all images for debug
+        #show the initial image for debug
         cv2.imshow("image", image)
-        #cv2.imshow("hsv", hsv)
-        cv2.imshow("mask", mask)
-        #cv2.imshow("open", m_open)
-        
+ 
         stream(image)
 
-# After the loop release the cap object
-cam.release()
-# Destroy all the windows
 cv2.destroyAllWindows()
-
-
