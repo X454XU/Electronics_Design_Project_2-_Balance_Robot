@@ -120,7 +120,7 @@ def send_command_html():
 
 def process_command(keypress):
     # Implement command processing logic here
-    if '_up' in keypress:
+    if '_up' in keypress or keypress == 'i':
         # Move forward logic
         return 'idle'
     elif keypress == 'w':
