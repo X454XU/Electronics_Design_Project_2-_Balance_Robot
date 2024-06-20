@@ -38,7 +38,7 @@ def stop():
 
 # Define the TCP URL from the Raspberry Pi
 tcp_url = 'tcp://192.168.43.39:8554' #http://10.191.71.116:5000/stream
-server_ip = '10.191.71.116:5000'
+server_ip = '192.168.43.101:5000'
 source_url = 'http://'+server_ip+'/od_video_feed'
 stream_url = 'http://'+server_ip+'/stream'
 auto_url = 'http://'+server_ip+'/auto'
@@ -71,15 +71,15 @@ cv2.createTrackbar('morph_k','image',1,10,nothing)
 #upper = np.array([25, 255, 255])
 #approxiamtely skin colour
 # Set default value for MIN HSV trackbars.
-cv2.setTrackbarPos('HMin', 'image', 7)
-cv2.setTrackbarPos('SMin', 'image', 15)
-cv2.setTrackbarPos('VMin', 'image', 140)
-# Set default value for MAX HSV trackbars.
-cv2.setTrackbarPos('HMax', 'image', 18)
-cv2.setTrackbarPos('SMax', 'image', 152)
-cv2.setTrackbarPos('VMax', 'image', 241)
-
-cv2.setTrackbarPos('morph_k', 'image', 10)
+#cv2.setTrackbarPos('HMin', 'image', 7)
+#cv2.setTrackbarPos('SMin', 'image', 15)
+#cv2.setTrackbarPos('VMin', 'image', 140)
+## Set default value for MAX HSV trackbars.
+#cv2.setTrackbarPos('HMax', 'image', 18)
+#cv2.setTrackbarPos('SMax', 'image', 152)
+#cv2.setTrackbarPos('VMax', 'image', 241)
+#
+#cv2.setTrackbarPos('morph_k', 'image', 10)
 
 # Initialize to check if HSV min/max value changes
 hMin = sMin = vMin = hMax = sMax = vMax = 0
@@ -114,17 +114,17 @@ while (True):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
         # get current positions of all trackbars
-        hMin = cv2.getTrackbarPos('HMin', 'image')
-        sMin = cv2.getTrackbarPos('SMin', 'image')
-        vMin = cv2.getTrackbarPos('VMin', 'image')
+        #hMin = cv2.getTrackbarPos('HMin', 'image')
+        #sMin = cv2.getTrackbarPos('SMin', 'image')
+        #vMin = cv2.getTrackbarPos('VMin', 'image')
 
-        hMax = cv2.getTrackbarPos('HMax', 'image')
-        sMax = cv2.getTrackbarPos('SMax', 'image')
-        vMax = cv2.getTrackbarPos('VMax', 'image')
+        #hMax = cv2.getTrackbarPos('HMax', 'image')
+        #sMax = cv2.getTrackbarPos('SMax', 'image')
+        #vMax = cv2.getTrackbarPos('VMax', 'image')
 
         # Set minimum and max HSV values to display
-        lower = np.array([hMin, sMin, vMin])
-        upper = np.array([hMax, sMax, vMax])
+        lower = np.array([107, 124, 131])
+        upper = np.array([116, 255, 255])
 
         mask = cv2.inRange(hsv, lower, upper)
 
@@ -174,7 +174,7 @@ while (True):
         #show all images for debug
         cv2.imshow("image", image)
         #cv2.imshow("hsv", hsv)
-        #cv2.imshow("mask", mask)
+        cv2.imshow("mask", mask)
         #cv2.imshow("open", m_open)
         
         stream(image)
