@@ -8,7 +8,7 @@ camera = Picamera2()
 camera.configure(camera.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
 camera.start()
 
-server_url = 'http://10.191.71.116:5000/tream'  # Replace 'Server_IP' with the actual IP of the server
+server_url = 'http://10.191.71.116:5000/source_stream'  # Replace 'Server_IP' with the actual IP of the server
 
 # Allow the camera to warm up
 time.sleep(2)
