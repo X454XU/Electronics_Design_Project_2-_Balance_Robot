@@ -78,7 +78,7 @@ def send_key():
         return jsonify({'key':keypress_log[-1]}), 200
 
 @app.route('/auto', methods=['POST'])
-def log_keypress():
+def auto():
     auto_command = request.json.get('auto')
     if auto_command:
         auto_log.append(auto_command)
@@ -154,5 +154,5 @@ def set_mode():
     return jsonify({'error': 'No mode provided'}), 400
     
 if __name__ == '__main__':
-    app.run(host = '127.0.0.1', port = 5000, debug=True) #host='127.0.0.1', port=5000
+    app.run(host = '10.191.71.116', port = 5000, debug=True) #host='127.0.0.1', port=5000
 
