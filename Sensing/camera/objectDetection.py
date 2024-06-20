@@ -36,6 +36,7 @@ def stop():
     print("idle_up")
     auto("idle_up")
 
+
 # Define the links for raspberry pi communcation
 # #http://10.191.71.116:5000/stream
 server_ip = '192.168.43.101:5000'
@@ -57,10 +58,10 @@ while (True):
         raise Exception(f"Failed to retrieve image from {source_url}, status code: {response.status_code}")
     image_array = np.frombuffer(image_data, np.uint8)
     image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-    
+
     if image is not None:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
+        
         lower = np.array([107, 124, 131])
         upper = np.array([116, 255, 255])
 
@@ -107,7 +108,7 @@ while (True):
 
         #show the initial image for debug
         cv2.imshow("image", image)
-        
+ 
         stream(image)
 
 cv2.destroyAllWindows()
