@@ -58,24 +58,19 @@ This repository contains the code and documentation for the Balance Robot projec
    ```
    Or use the automated extension in VS code
    
-4. Install dependencies for the UI:
-   ```bash
-   cd UI
-   npm install
-   ```
-
 ### Usage
-1. Flash the firmware to the ESP32.
-2. Run the server for image processing and control:
+
+1. Run the server for image processing and control:
    ```bash
-   cd Sensing/Object\ Detection
-   python main.py
+   cd Server/
+   python server.py
    ```
-3. Launch the UI to start controlling the robot:
-   ```bash
-   cd UI
-   npm start
-   ```
+2. Have the clients for both power and Image processing running on a rasberry pi
+
+3. Flash the firmware to the ESP32.
+
+4. Launch the UI to start controlling the robot:
+
 
 ## Contributors
 - Maximilian Adam
