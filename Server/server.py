@@ -1,12 +1,14 @@
 from flask import Flask, request, Response, render_template, jsonify
 import cv2
 import numpy as np
+import json
 
 
 app = Flask(__name__)
 
 
 # Global variable to store the latest frame
+source_latest_frame = None
 latest_frame = None
 keypress_log = ["w_up"]
 auto_log = ["w_up"]
@@ -29,6 +31,25 @@ def get_speed():
     global speed
     data = {'speed': speed}
     return jsonify(data)
+
+@app.route('/source_stream', methods=['POST'])
+def source_stream():
+    global source_latest_frame
+    nparr = np.frombuffer(request.data, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is not None:
+        source_latest_frame = img
+    return 'Frame received', 200
+
+
+@app.route('/od_video_feed')
+def od_video_feed():
+    global source_latest_frame
+    if source_latest_frame is not None:
+        _, buffer = cv2.imencode('.jpg', source_latest_frame)
+        frame_bytes = buffer.tobytes()
+        return Response(frame_bytes, mimetype='image/jpeg')
+    return "No frame available", 404
 
 @app.route('/stream', methods=['POST'])
 def stream():
@@ -79,7 +100,8 @@ def send_key():
 
 @app.route('/auto', methods=['POST'])
 def auto():
-    auto_command = request.json.get('auto')
+    auto_command = request.json
+    auto_command = json.loads(auto_command)['auto']
     if auto_command:
         auto_log.append(auto_command)
         print(auto_log)
