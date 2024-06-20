@@ -176,5 +176,5 @@ def set_mode():
     return jsonify({'error': 'No mode provided'}), 400
     
 if __name__ == '__main__':
-    app.run(host = '10.191.71.116', port = 5000, debug=True) #host='127.0.0.1', port=5000
+    app.run(host = '192.168.43.101', port = 5000, debug=True) #host='127.0.0.1', port=5000
 
